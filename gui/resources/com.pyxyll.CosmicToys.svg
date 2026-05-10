@@ -1,31 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Rounded slate background; same shape PowerToys uses, with the
-       "toys" punchline rendered as three letter-blocks inside. -->
+  <!-- Riff on the PowerToys icon: dark rounded-square, horizontal
+       spectrum strip near the top (color-picker reference), three
+       dots below for the tools-in-a-box read. -->
   <rect width="128" height="128" rx="28" fill="#1E293B"/>
 
-  <!-- T (purple), slight left tilt -->
-  <g transform="translate(12 48)">
-    <g transform="rotate(-8 16 16)">
-      <rect width="32" height="32" rx="6" fill="#A855F7"/>
-      <text x="16" y="23" font-family="sans-serif" font-weight="700"
-            font-size="22" fill="#FFFFFF" text-anchor="middle">T</text>
-    </g>
+  <!-- Spectrum strip. Five vertical bars inside a rounded rect,
+       clipped so the colors line up cleanly with the rounded edges. -->
+  <defs>
+    <clipPath id="strip-clip">
+      <rect x="19" y="28" width="90" height="50" rx="6"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#strip-clip)">
+    <rect x="19" y="28" width="18" height="50" fill="#EF4444"/>
+    <rect x="37" y="28" width="18" height="50" fill="#F59E0B"/>
+    <rect x="55" y="28" width="18" height="50" fill="#22C55E"/>
+    <rect x="73" y="28" width="18" height="50" fill="#3B82F6"/>
+    <rect x="91" y="28" width="18" height="50" fill="#A855F7"/>
   </g>
+  <!-- Subtle border so the strip pops against the slate -->
+  <rect x="19" y="28" width="90" height="50" rx="6"
+        fill="none" stroke="#0F172A" stroke-width="2"/>
 
-  <!-- O (pink), upright -->
-  <g transform="translate(48 48)">
-    <rect width="32" height="32" rx="6" fill="#EC4899"/>
-    <text x="16" y="23" font-family="sans-serif" font-weight="700"
-          font-size="22" fill="#FFFFFF" text-anchor="middle">O</text>
-  </g>
-
-  <!-- Y (cyan), slight right tilt -->
-  <g transform="translate(84 48)">
-    <g transform="rotate(6 16 16)">
-      <rect width="32" height="32" rx="6" fill="#06B6D4"/>
-      <text x="16" y="23" font-family="sans-serif" font-weight="700"
-            font-size="22" fill="#FFFFFF" text-anchor="middle">Y</text>
-    </g>
-  </g>
+  <!-- Three white tool dots below the strip -->
+  <circle cx="48" cy="100" r="5" fill="#F1F5F9"/>
+  <circle cx="64" cy="100" r="5" fill="#F1F5F9"/>
+  <circle cx="80" cy="100" r="5" fill="#F1F5F9"/>
 </svg>
