@@ -1,19 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Background -->
+  <!-- Rounded slate background; same shape PowerToys uses, with the
+       "toys" punchline rendered as three letter-blocks inside. -->
   <rect width="128" height="128" rx="28" fill="#1E293B"/>
 
-  <!-- Eyedropper, vertical, centered horizontally -->
-  <rect x="46" y="18" width="36" height="14" rx="5" fill="#F1F5F9"/>
-  <rect x="50" y="32" width="28" height="4" rx="1" fill="#94A3B8"/>
-  <rect x="54" y="36" width="20" height="20" fill="#F1F5F9"/>
-  <rect x="54" y="56" width="20" height="16" fill="#EC4899"/>
-  <rect x="50" y="72" width="28" height="4" rx="1" fill="#94A3B8"/>
-  <path d="M54 76 L74 76 L67 96 L61 96 Z" fill="#F1F5F9"/>
+  <!-- T (purple), slight left tilt -->
+  <g transform="translate(12 48)">
+    <g transform="rotate(-8 16 16)">
+      <rect width="32" height="32" rx="6" fill="#A855F7"/>
+      <text x="16" y="23" font-family="sans-serif" font-weight="700"
+            font-size="22" fill="#FFFFFF" text-anchor="middle">T</text>
+    </g>
+  </g>
 
-  <!-- Drop -->
-  <path d="M64 102
-           C 55 110, 55 119, 64 123
-           C 73 119, 73 110, 64 102 Z"
-        fill="#EC4899"/>
+  <!-- O (pink), upright -->
+  <g transform="translate(48 48)">
+    <rect width="32" height="32" rx="6" fill="#EC4899"/>
+    <text x="16" y="23" font-family="sans-serif" font-weight="700"
+          font-size="22" fill="#FFFFFF" text-anchor="middle">O</text>
+  </g>
+
+  <!-- Y (cyan), slight right tilt -->
+  <g transform="translate(84 48)">
+    <g transform="rotate(6 16 16)">
+      <rect width="32" height="32" rx="6" fill="#06B6D4"/>
+      <text x="16" y="23" font-family="sans-serif" font-weight="700"
+            font-size="22" fill="#FFFFFF" text-anchor="middle">Y</text>
+    </g>
+  </g>
 </svg>
