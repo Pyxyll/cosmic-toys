@@ -24,37 +24,37 @@ use cosmic::widget;
 use cosmic::widget::nav_bar;
 
 pub struct AppModel {
-    core: Core,
-    config: Config,
+    pub(crate) core: Core,
+    pub(crate) config: Config,
     /// Most recently picked color, displayed in the result view.
-    picked: Option<PickedColor>,
+    pub(crate) picked: Option<PickedColor>,
     /// True while the overlay is running, used to debounce repeated clicks.
-    picking: bool,
+    pub(crate) picking: bool,
     /// Recent picks, newest first. Mirrored to `config.history` (persisted).
-    history: Vec<PickedColor>,
+    pub(crate) history: Vec<PickedColor>,
     /// Sidebar navigation state.
-    nav: nav_bar::Model,
+    pub(crate) nav: nav_bar::Model,
     /// Cached "is autostart enabled?" so the toggle reflects on-disk truth.
-    autostart_enabled: bool,
+    pub(crate) autostart_enabled: bool,
     /// Currently-bound shortcut, displayed on the Settings page button.
-    shortcut_current: Option<String>,
+    pub(crate) shortcut_current: Option<String>,
     /// True while the user is in "press a combo" mode and we should listen
     /// to keyboard events.
-    capturing_shortcut: bool,
+    pub(crate) capturing_shortcut: bool,
     /// Feedback from the last shortcut save: `Ok(human)` on success,
     /// `Err(reason)` on parse / write failure, `None` while idle.
-    shortcut_status: Option<Result<String, String>>,
+    pub(crate) shortcut_status: Option<Result<String, String>>,
     /// Most recently copied value + when. Used to flash the copy icon to a
     /// check mark for a brief window after a click. `None` once the
     /// feedback has been cleared.
-    last_copied: Option<(String, Instant)>,
+    pub(crate) last_copied: Option<(String, Instant)>,
     /// Set when a new color landed in the hero card; the swatch fades in
     /// from `t = elapsed_since(start)`. `None` once the animation has run
     /// to completion (the Tick handler clears it so the subscription stops).
-    hero_anim_start: Option<Instant>,
+    pub(crate) hero_anim_start: Option<Instant>,
     /// Set when a new chip was prepended to Recents; chip[0] slides + fades
     /// in. Triggered only by PickResult, not SelectHistory.
-    chip_anim_start: Option<Instant>,
+    pub(crate) chip_anim_start: Option<Instant>,
 }
 
 const COPY_FEEDBACK_MS: u64 = 1500;
@@ -187,7 +187,7 @@ impl cosmic::Application for AppModel {
     fn view(&self) -> Element<'_, Message> {
         let page = self.nav.active_data::<Page>().copied().unwrap_or(Page::Picker);
         let body = match page {
-            Page::Picker => self.picker_page(),
+            Page::Picker => crate::tools::color_picker::page(self),
             Page::Settings => self.settings_page(),
             Page::About => self.about_page(),
         };
@@ -427,23 +427,6 @@ impl AppModel {
         }
     }
 
-    fn picker_page(&self) -> Element<'_, Message> {
-        // Pick button lives inside the hero card / welcome view now —
-        // the floating header-row above the first card looked lonely and
-        // pushed the cards too far down. The body owns its own action.
-        match &self.picked {
-            None => self.welcome_view(),
-            Some(p) => self.result_view(p),
-        }
-    }
-
-    fn pick_icon_button(&self) -> Element<'_, Message> {
-        widget::button::icon(widget::icon::from_name("color-select-symbolic"))
-            .large()
-            .on_press_maybe((!self.picking).then_some(Message::PickPressed))
-            .into()
-    }
-
     fn about_page(&self) -> Element<'_, Message> {
         // Embed the SVG bytes so the about page renders correctly even when
         // the binary runs from `target/release` before `just install` has
@@ -528,13 +511,7 @@ impl AppModel {
             .title(fl!("settings-shortcut"))
             .add(shortcut_col);
 
-        let formats_section = widget::settings::section()
-            .title(fl!("settings-formats"))
-            .add(format_toggle_row("HEX", Format::Hex, self.config.format_hex))
-            .add(format_toggle_row("RGB", Format::Rgb, self.config.format_rgb))
-            .add(format_toggle_row("HSL", Format::Hsl, self.config.format_hsl))
-            .add(format_toggle_row("HSV", Format::Hsv, self.config.format_hsv))
-            .add(format_toggle_row("OKLCH", Format::Oklch, self.config.format_oklch));
+        let formats_section = crate::tools::color_picker::settings_section(self);
 
         let autostart_section = widget::settings::section()
             .title(fl!("settings-startup"))
@@ -552,100 +529,7 @@ impl AppModel {
             .into()
     }
 
-    fn welcome_view(&self) -> Element<'_, Message> {
-        widget::container(
-            widget::Column::new()
-                .spacing(16)
-                .align_x(cosmic::iced::Alignment::Center)
-                .push(widget::icon::from_name("color-select-symbolic").size(64))
-                .push(widget::text::title3(fl!("welcome-title")))
-                .push(widget::text::body(fl!("welcome-body")))
-                .push(self.pick_icon_button()),
-        )
-        .center_x(Length::Fill)
-        .padding(48)
-        .into()
-    }
-
-    fn result_view(&self, p: &PickedColor) -> Element<'_, Message> {
-        let mut col = widget::Column::new()
-            .spacing(16)
-            .push(self.hero_card(p))
-            .push(self.formats_card(p));
-        if !self.history.is_empty() {
-            col = col.push(self.history_card());
-        }
-        col.into()
-    }
-
-    fn hero_card(&self, p: &PickedColor) -> Element<'_, Message> {
-        // Hero swatch: fade-in via alpha when a fresh pick just landed.
-        // No size animation here so the headline next to it doesn't reflow.
-        let alpha = ease_out_cubic(anim_progress(self.hero_anim_start));
-        let swatch = animated_color_block(p.rgb, 80.0, alpha);
-
-        let icon_name = if self.is_recently_copied(&p.hex()) {
-            "object-select-symbolic"
-        } else {
-            "edit-copy-symbolic"
-        };
-        let copy_hex = widget::button::icon(widget::icon::from_name(icon_name))
-            .extra_small()
-            .on_press(Message::Copy(p.hex()));
-
-        let headline = widget::Row::new()
-            .spacing(8)
-            .align_y(cosmic::iced::Alignment::Center)
-            .push(widget::text::title2(p.hex()))
-            .push(copy_hex);
-
-        // [swatch | hex + copy | (filler) | pick]
-        let row = widget::Row::new()
-            .spacing(16)
-            .align_y(cosmic::iced::Alignment::Center)
-            .push(swatch)
-            .push(headline)
-            .push(widget::Space::new().width(Length::Fill))
-            .push(self.pick_icon_button());
-
-        widget::container(row)
-            .padding(14)
-            .width(Length::Fill)
-            .class(cosmic::theme::style::Container::Card)
-            .into()
-    }
-
-    fn formats_card(&self, p: &PickedColor) -> Element<'_, Message> {
-        let mut section = widget::settings::section();
-        if self.config.format_hex {
-            let v = p.hex();
-            let copied = self.is_recently_copied(&v);
-            section = section.add(format_item(&fl!("format-hex"), v, copied));
-        }
-        if self.config.format_rgb {
-            let v = p.rgb_str();
-            let copied = self.is_recently_copied(&v);
-            section = section.add(format_item(&fl!("format-rgb"), v, copied));
-        }
-        if self.config.format_hsl {
-            let v = p.hsl_str();
-            let copied = self.is_recently_copied(&v);
-            section = section.add(format_item(&fl!("format-hsl"), v, copied));
-        }
-        if self.config.format_hsv {
-            let v = p.hsv_str();
-            let copied = self.is_recently_copied(&v);
-            section = section.add(format_item(&fl!("format-hsv"), v, copied));
-        }
-        if self.config.format_oklch {
-            let v = p.oklch_str();
-            let copied = self.is_recently_copied(&v);
-            section = section.add(format_item(&fl!("format-oklch"), v, copied));
-        }
-        section.into()
-    }
-
-    fn is_recently_copied(&self, value: &str) -> bool {
+    pub(crate) fn is_recently_copied(&self, value: &str) -> bool {
         match &self.last_copied {
             Some((s, t)) => {
                 s == value && t.elapsed() < Duration::from_millis(COPY_FEEDBACK_MS)
@@ -653,136 +537,20 @@ impl AppModel {
             None => false,
         }
     }
-
-    fn history_card(&self) -> Element<'_, Message> {
-        let mut strip = widget::Row::new().spacing(8);
-        for (i, c) in self.history.iter().enumerate() {
-            strip = strip.push(self.history_chip(i, c.rgb));
-        }
-        // Wrap in a horizontal scroller so a long history doesn't overflow
-        // the popup width. The scrollbar appears on demand.
-        // Bottom padding on the inner strip so the scrollbar sits below
-        // the chips instead of overlapping them. Path through iced because
-        // cosmic::widget only re-exports the scrollable constructor.
-        let strip_padded = widget::container(strip).padding([0, 0, 12, 0]);
-        let scrollable_strip = widget::scrollable(strip_padded).direction(
-            cosmic::iced::widget::scrollable::Direction::Horizontal(
-                cosmic::iced::widget::scrollable::Scrollbar::new(),
-            ),
-        );
-
-        let header = widget::Row::new()
-            .align_y(cosmic::iced::Alignment::Center)
-            .push(widget::text::heading(fl!("history-title")).width(Length::Fill))
-            .push(
-                widget::button::link(fl!("history-clear"))
-                    .on_press(Message::ClearHistory),
-            );
-        widget::container(
-            widget::Column::new()
-                .spacing(12)
-                .push(header)
-                .push(scrollable_strip),
-        )
-        .padding(20)
-        .width(Length::Fill)
-        .class(cosmic::theme::style::Container::Card)
-        .into()
-    }
-
-    fn history_chip(&self, idx: usize, rgb: (u8, u8, u8)) -> Element<'_, Message> {
-        // The freshest entry slides + fades in: width grows from 0 to 36
-        // (which pushes the older chips rightward, reading like a real
-        // insertion) and the swatch alpha ramps in lockstep. Older chips
-        // render with the static `color_block`.
-        let inner = if idx == 0 && self.chip_anim_start.is_some() {
-            let p = ease_out_cubic(anim_progress(self.chip_anim_start));
-            animated_color_block(rgb, 36.0 * p, p)
-        } else {
-            self.color_block(rgb, 36.0)
-        };
-        widget::button::custom(inner)
-            .padding(0)
-            .class(cosmic::theme::style::Button::Standard)
-            .on_press(Message::SelectHistory(idx))
-            .into()
-    }
-
-    fn color_block(&self, rgb: (u8, u8, u8), size: f32) -> Element<'_, Message> {
-        let color = cosmic::iced::Color::from_rgb8(rgb.0, rgb.1, rgb.2);
-        widget::container(widget::Space::new())
-            .width(Length::Fixed(size))
-            .height(Length::Fixed(size))
-            .class(cosmic::theme::style::Container::custom(
-                move |theme: &cosmic::Theme| {
-                    let cosmic = theme.cosmic();
-                    cosmic::iced::widget::container::Style {
-                        background: Some(color.into()),
-                        border: cosmic::iced::Border {
-                            radius: cosmic.corner_radii.radius_s.into(),
-                            width: 1.0,
-                            color: cosmic.background.divider.into(),
-                        },
-                        ..Default::default()
-                    }
-                },
-            ))
-            .into()
-    }
-}
-
-fn format_toggle_row<'a>(label: &str, kind: Format, on: bool) -> Element<'a, Message> {
-    widget::settings::item(
-        label.to_string(),
-        widget::toggler(on).on_toggle(move |v| Message::ToggleFormat(kind, v)),
-    )
-    .into()
 }
 
 /// 0..1 progress along an active animation. Returns 1.0 when `start` is
 /// `None` — i.e. the animation isn't running, so callers should render the
-/// final, fully-on state.
-fn anim_progress(start: Option<Instant>) -> f32 {
+/// final, fully-on state. Shared by tools that have entry/exit animations.
+pub(crate) fn anim_progress(start: Option<Instant>) -> f32 {
     match start {
         Some(t) => (t.elapsed().as_millis() as f32 / PICK_ANIM_MS as f32).clamp(0.0, 1.0),
         None => 1.0,
     }
 }
 
-fn ease_out_cubic(t: f32) -> f32 {
+pub(crate) fn ease_out_cubic(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
-}
-
-/// Variant of `color_block` whose fill + border alpha are scaled by `alpha`.
-/// Used by the hero card and the freshest recents chip during entry
-/// animation; otherwise call sites stick with `color_block` (alpha = 1).
-fn animated_color_block<'a>(
-    rgb: (u8, u8, u8),
-    size: f32,
-    alpha: f32,
-) -> Element<'a, Message> {
-    let mut color = cosmic::iced::Color::from_rgb8(rgb.0, rgb.1, rgb.2);
-    color.a = alpha;
-    widget::container(widget::Space::new())
-        .width(Length::Fixed(size))
-        .height(Length::Fixed(size))
-        .class(cosmic::theme::style::Container::custom(
-            move |theme: &cosmic::Theme| {
-                let cosmic = theme.cosmic();
-                let mut border_color: cosmic::iced::Color = cosmic.background.divider.into();
-                border_color.a *= alpha;
-                cosmic::iced::widget::container::Style {
-                    background: Some(color.into()),
-                    border: cosmic::iced::Border {
-                        radius: cosmic.corner_radii.radius_s.into(),
-                        width: 1.0,
-                        color: border_color,
-                    },
-                    ..Default::default()
-                }
-            },
-        ))
-        .into()
 }
 
 fn parse_history(raw: &[String]) -> Vec<PickedColor> {
@@ -876,23 +644,3 @@ fn named_key_str(n: Named) -> Option<&'static str> {
     })
 }
 
-/// A settings-list row: label on the left, monospace value, copy icon button.
-/// `copied=true` swaps the copy icon for a checkmark to confirm the click.
-fn format_item<'a>(label: &str, value: String, copied: bool) -> Element<'a, Message> {
-    let value_for_copy = value.clone();
-    let icon_name = if copied {
-        "object-select-symbolic"
-    } else {
-        "edit-copy-symbolic"
-    };
-    let trailing = widget::Row::new()
-        .spacing(12)
-        .align_y(cosmic::iced::Alignment::Center)
-        .push(widget::text::monotext(value))
-        .push(
-            widget::button::icon(widget::icon::from_name(icon_name))
-                .extra_small()
-                .on_press(Message::Copy(value_for_copy)),
-        );
-    widget::settings::item(label.to_string(), trailing).into()
-}

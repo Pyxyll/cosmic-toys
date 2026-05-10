@@ -14,6 +14,7 @@ mod config;
 mod i18n;
 mod ipc;
 mod shortcut;
+mod tools;
 
 use std::env;
 use std::path::PathBuf;
