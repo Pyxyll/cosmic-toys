@@ -55,14 +55,26 @@ fn migrate_legacy_state() {
 
 #[derive(Debug, Default)]
 struct CliFlags {
-    pick: bool,
+    /// If set, run the named tool one-shot via the daemon (or daemon
+    /// subprocess fallback) and exit. `None` means "open the GUI window".
+    run_tool: Option<String>,
 }
 
 fn parse_args() -> Result<CliFlags, ExitCode> {
     let mut flags = CliFlags::default();
-    for arg in env::args().skip(1) {
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--pick" => flags.pick = true,
+            // `cosmic-toys run <tool>` — canonical form for v0.3+.
+            "run" => match args.next() {
+                Some(tool) => flags.run_tool = Some(tool),
+                None => {
+                    eprintln!("'run' requires a tool id (e.g. 'cosmic-toys run color_picker')");
+                    return Err(ExitCode::from(2));
+                }
+            },
+            // Legacy alias kept so v0.2.x shortcut bindings keep working.
+            "--pick" => flags.run_tool = Some("color_picker".into()),
             "-h" | "--help" => {
                 print_help();
                 return Err(ExitCode::SUCCESS);
@@ -82,12 +94,14 @@ fn parse_args() -> Result<CliFlags, ExitCode> {
 }
 
 fn print_help() {
-    println!("Usage: cosmic-toys [--pick]");
+    println!("Usage: cosmic-toys [run <tool>]");
     println!();
-    println!("  (no flags)  Open the application window.");
-    println!("  --pick      Trigger the picker overlay and copy the result.");
+    println!("  (no args)         Open the application window.");
+    println!("  run <tool>        Trigger a tool one-shot (e.g. `run color_picker`).");
+    println!("  --pick            Alias for `run color_picker` (legacy).");
     println!();
-    println!("Bindings configured in-app under Settings > Keyboard shortcut.");
+    println!("Hotkeys: bind in-app under Settings, or point your shortcut config at");
+    println!("`cosmic-toys run <tool>` directly.");
 }
 
 fn main() -> ExitCode {
@@ -98,32 +112,31 @@ fn main() -> ExitCode {
 
     migrate_legacy_state();
 
-    if flags.pick {
-        return run_pick();
+    if let Some(tool) = flags.run_tool {
+        return run_tool(&tool);
     }
 
     run_app()
 }
 
-/// `--pick` path. Talk to the running daemon if reachable; otherwise spawn
-/// `cosmic-toysd` directly so the hotkey still works without a
-/// daemon. Either way the daemon owns clipboard + notification delivery.
-fn run_pick() -> ExitCode {
+/// One-shot tool invocation. Talk to the running daemon if reachable;
+/// otherwise spawn `cosmic-toysd run <tool>` so a hotkey still works without
+/// a daemon. Either way the daemon owns side-effects (clipboard, notification,
+/// overlay rendering).
+fn run_tool(tool: &str) -> ExitCode {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(r) => r,
-        Err(_) => return spawn_daemon_oneshot(),
+        Err(_) => return spawn_daemon_oneshot(tool),
     };
     if runtime.block_on(ipc::daemon_reachable()) {
-        // Hand off via the socket. The daemon's `pick` handler responds with
-        // the hex (which we ignore here — clipboard + notify is its job).
-        let _ = runtime.block_on(ipc::request_pick());
+        let _ = runtime.block_on(ipc::request_run(tool));
         return ExitCode::SUCCESS;
     }
-    spawn_daemon_oneshot()
+    spawn_daemon_oneshot(tool)
 }
 
-fn spawn_daemon_oneshot() -> ExitCode {
-    match Command::new("cosmic-toysd").status() {
+fn spawn_daemon_oneshot(tool: &str) -> ExitCode {
+    match Command::new("cosmic-toysd").args(["run", tool]).status() {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         Ok(s) => ExitCode::from(s.code().unwrap_or(1).clamp(0, 255) as u8),
         Err(e) => {

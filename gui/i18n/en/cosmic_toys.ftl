@@ -1,7 +1,13 @@
 app-title = cosmic-toys
 nav-picker = Color Picker
+nav-mouse-find = Find Mouse
 nav-settings = Settings
 nav-about = About
+
+mouse-find-title = Find Mouse
+mouse-find-body = Lost your cursor? Hit your hotkey and a brief spotlight will help you find it.
+mouse-find-pick-button = Test the spotlight
+settings-mouse-find = Find Mouse
 
 welcome-title = Pick a color
 welcome-body = Hit your keyboard shortcut, or use the button at the top right to capture a color from anywhere on screen.

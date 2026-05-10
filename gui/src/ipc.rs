@@ -1,7 +1,8 @@
 //! GUI-side IPC: a client that talks to the cosmic-toysd daemon.
 //!
-//! Protocol matches the daemon's `ipc.rs`: write `b'p'`, read back the
-//! picked hex (or empty line on cancel). The GUI is purely a client now;
+//! Protocol (v0.3+): client writes `<tool-id>\n`, daemon runs that tool and
+//! writes back a tool-specific response (color picker returns the hex; tools
+//! with no return value write a single `\n`). The GUI is purely a client;
 //! the daemon is the only process that listens on the socket.
 
 use std::path::PathBuf;
@@ -17,30 +18,34 @@ fn socket_path() -> PathBuf {
     runtime.join("cosmic-toysd.sock")
 }
 
-/// Ask the running daemon to pick a colour. Returns:
-///   `Some(Some(hex))`  daemon picked a colour
-///   `Some(None)`       daemon was reachable but the user cancelled
-///   `None`             no daemon reachable; caller should fall back
-pub async fn request_pick() -> Option<Option<String>> {
+/// Generic tool dispatch. Used for any tool that has daemon-side work to do.
+/// Returns the trimmed response string, or `None` if the daemon wasn't
+/// reachable (the caller is expected to fall back to a subprocess).
+pub async fn request_run(tool: &str) -> Option<String> {
     let mut stream = UnixStream::connect(socket_path()).await.ok()?;
-    stream.write_all(b"p").await.ok()?;
+    let mut payload = tool.as_bytes().to_vec();
+    payload.push(b'\n');
+    stream.write_all(&payload).await.ok()?;
 
-    // Generous read timeout: an idle user can sit on the picker for ages.
     let mut buf = String::new();
-    let read = tokio::time::timeout(Duration::from_secs(600), stream.read_to_string(&mut buf))
-        .await
-        .ok()?;
-    read.ok()?;
+    // Generous read timeout — picker users may take a while to click.
+    let _ = tokio::time::timeout(Duration::from_secs(600), stream.read_to_string(&mut buf)).await;
+    Some(buf.trim().to_string())
+}
 
-    let trimmed = buf.trim();
-    if trimmed.is_empty() {
+/// Convenience wrapper for the color picker — returns the picked hex, or
+/// `None` on cancel / unreachable daemon. Kept around because the `Pick`
+/// button in the GUI cares about the hex specifically.
+pub async fn request_pick() -> Option<Option<String>> {
+    let resp = request_run("color_picker").await?;
+    if resp.is_empty() {
         Some(None)
     } else {
-        Some(Some(trimmed.to_string()))
+        Some(Some(resp))
     }
 }
 
-/// Quick reachability check used by the `--pick` CLI fallback path.
+/// Quick reachability check used by the run-fallback path in main.
 pub async fn daemon_reachable() -> bool {
     UnixStream::connect(socket_path()).await.is_ok()
 }

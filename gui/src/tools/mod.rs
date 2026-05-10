@@ -8,3 +8,4 @@
 //! as factored.
 
 pub mod color_picker;
+pub mod mouse_find;

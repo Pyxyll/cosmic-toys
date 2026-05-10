@@ -61,8 +61,11 @@ const COPY_FEEDBACK_MS: u64 = 1500;
 const PICK_ANIM_MS: u64 = 350;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Page {
+pub(crate) enum Page {
+    /// Color Picker tool.
     Picker,
+    /// Find Mouse tool.
+    MouseFind,
     Settings,
     About,
 }
@@ -96,6 +99,9 @@ pub enum Message {
     /// Drives entry animations for hero swatch + new recents chip.
     /// Self-clears the start fields once the elapsed time exceeds duration.
     Tick,
+    /// "Test the spotlight" button on the Mouse Find page — triggers the
+    /// daemon's find_mouse path. Same effect as binding a hotkey to it.
+    MouseFindTriggered,
 }
 
 impl cosmic::Application for AppModel {
@@ -129,6 +135,10 @@ impl cosmic::Application for AppModel {
             .icon(widget::icon::from_name("color-select-symbolic"))
             .data::<Page>(Page::Picker)
             .activate();
+        nav.insert()
+            .text(fl!("nav-mouse-find"))
+            .icon(widget::icon::from_name("input-mouse-symbolic"))
+            .data::<Page>(Page::MouseFind);
         nav.insert()
             .text(fl!("nav-settings"))
             .icon(widget::icon::from_name("preferences-system-symbolic"))
@@ -188,6 +198,7 @@ impl cosmic::Application for AppModel {
         let page = self.nav.active_data::<Page>().copied().unwrap_or(Page::Picker);
         let body = match page {
             Page::Picker => crate::tools::color_picker::page(self),
+            Page::MouseFind => crate::tools::mouse_find::page(self),
             Page::Settings => self.settings_page(),
             Page::About => self.about_page(),
         };
@@ -412,6 +423,17 @@ impl cosmic::Application for AppModel {
                 if matches!(self.chip_anim_start, Some(t) if t.elapsed() >= done) {
                     self.chip_anim_start = None;
                 }
+            }
+            Message::MouseFindTriggered => {
+                // Fire-and-forget: ask the daemon to run find_mouse. No
+                // response handling — the daemon's job is just to flash the
+                // overlay and exit; nothing to come back to the GUI for.
+                return Task::perform(
+                    async {
+                        ipc::request_run("find_mouse").await;
+                    },
+                    |_| cosmic::Action::None,
+                );
             }
         }
         Task::none()

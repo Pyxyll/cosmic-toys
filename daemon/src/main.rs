@@ -17,6 +17,7 @@
 //! cases where no daemon is reachable.
 
 mod capture;
+mod find_mouse;
 mod font;
 mod history;
 mod ipc;
@@ -53,16 +54,34 @@ fn migrate_legacy_history() {
 
 #[derive(Debug, Default)]
 struct CliFlags {
-    pick: bool,
+    /// Tool to run one-shot. `None` = run as long-running daemon.
+    run_tool: Option<String>,
+    /// Color-picker-only: suppress clipboard + notify side effects, just
+    /// print the hex on stdout. Ignored for other tools.
     quiet: bool,
 }
 
 fn parse_args() -> Result<CliFlags, ExitCode> {
     let mut flags = CliFlags::default();
-    for arg in env::args().skip(1) {
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--pick" => flags.pick = true,
-            "--quiet" | "-q" => flags.quiet = true,
+            "run" => match args.next() {
+                Some(tool) => flags.run_tool = Some(tool),
+                None => {
+                    eprintln!("cosmic-toysd: 'run' requires a tool id");
+                    print_help();
+                    return Err(ExitCode::from(2));
+                }
+            },
+            // Legacy aliases — kept so v0.2.x shortcut bindings still work.
+            "--pick" => flags.run_tool = Some("color_picker".into()),
+            "--quiet" | "-q" => {
+                flags.quiet = true;
+                if flags.run_tool.is_none() {
+                    flags.run_tool = Some("color_picker".into());
+                }
+            }
             "-h" | "--help" => {
                 print_help();
                 return Err(ExitCode::SUCCESS);
@@ -82,11 +101,14 @@ fn parse_args() -> Result<CliFlags, ExitCode> {
 }
 
 fn print_help() {
-    println!("Usage: cosmic-toysd [--pick | --quiet]");
+    println!("Usage: cosmic-toysd [run <tool> | --pick | --quiet]");
     println!();
-    println!("  (no flags)    Run forever as the IPC daemon.");
-    println!("  --pick        One-shot pick: copy + notify, then exit.");
-    println!("  --quiet       One-shot pick: print hex on stdout only.");
+    println!("  (no args)         Run forever as the IPC daemon.");
+    println!("  run <tool>        One-shot: dispatch to the running daemon if");
+    println!("                    reachable, otherwise run the tool directly.");
+    println!("                    Tools: color_picker, find_mouse.");
+    println!("  --pick            Alias for `run color_picker`.");
+    println!("  --quiet           Like --pick but only prints hex on stdout.");
 }
 
 fn main() -> ExitCode {
@@ -97,31 +119,31 @@ fn main() -> ExitCode {
 
     migrate_legacy_history();
 
-    if flags.pick {
-        // Hand off to a running daemon if one is reachable so the result
-        // lands in shared history instead of a stale parallel state.
+    if let Some(tool) = flags.run_tool.clone() {
+        // Prefer the running daemon over an in-process oneshot so results
+        // (history, clipboard, etc.) land in shared state instead of a
+        // stale parallel session.
         if let Ok(rt) = tokio::runtime::Runtime::new()
-            && rt.block_on(try_remote_pick(flags.quiet))
+            && rt.block_on(try_remote_run(&tool, flags.quiet))
         {
             return ExitCode::SUCCESS;
         }
-    }
-
-    if flags.pick || flags.quiet {
-        return run_oneshot(flags.quiet);
+        return run_oneshot(&tool, flags.quiet);
     }
 
     run_daemon()
 }
 
-/// Connect to the running daemon's socket, request a pick, await the hex,
-/// optionally copy + notify on this side. Returns true on success.
-async fn try_remote_pick(quiet: bool) -> bool {
+/// Connect to the running daemon, send `<tool>\n`, await + print response.
+/// Returns true on success.
+async fn try_remote_run(tool: &str, quiet: bool) -> bool {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let Ok(mut stream) = tokio::net::UnixStream::connect(ipc::socket_path()).await else {
         return false;
     };
-    if stream.write_all(b"p").await.is_err() {
+    let mut payload = tool.as_bytes().to_vec();
+    payload.push(b'\n');
+    if stream.write_all(&payload).await.is_err() {
         return false;
     }
     let mut buf = String::new();
@@ -129,34 +151,45 @@ async fn try_remote_pick(quiet: bool) -> bool {
         return false;
     }
     let trimmed = buf.trim();
-    if trimmed.is_empty() {
-        // user cancelled — still a success from the IPC perspective
-        return true;
-    }
-    println!("{trimmed}");
-    if !quiet {
-        deliver(trimmed);
+    if tool == "color_picker" && !trimmed.is_empty() {
+        println!("{trimmed}");
+        if !quiet {
+            deliver(trimmed);
+        }
     }
     true
 }
 
-fn run_oneshot(quiet: bool) -> ExitCode {
-    match overlay::pick_color() {
-        Ok(Some(hex)) => {
-            // Persist regardless of mode so the GUI sees one-shot picks too.
-            if let Err(e) = history::push(&hex) {
-                eprintln!("cosmic-toysd: history write failed: {e}");
+fn run_oneshot(tool: &str, quiet: bool) -> ExitCode {
+    match tool {
+        "color_picker" => match overlay::pick_color() {
+            Ok(Some(hex)) => {
+                // Persist regardless of mode so the GUI sees one-shot picks too.
+                if let Err(e) = history::push(&hex) {
+                    eprintln!("cosmic-toysd: history write failed: {e}");
+                }
+                println!("{hex}");
+                if !quiet {
+                    deliver(&hex);
+                }
+                ExitCode::SUCCESS
             }
-            println!("{hex}");
-            if !quiet {
-                deliver(&hex);
+            Ok(None) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("cosmic-toysd: {e}");
+                ExitCode::from(1)
             }
-            ExitCode::SUCCESS
-        }
-        Ok(None) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("cosmic-toysd: {e}");
-            ExitCode::from(1)
+        },
+        "find_mouse" => match find_mouse::show() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("cosmic-toysd: find_mouse: {e}");
+                ExitCode::from(1)
+            }
+        },
+        other => {
+            eprintln!("cosmic-toysd: unknown tool '{other}'");
+            ExitCode::from(2)
         }
     }
 }

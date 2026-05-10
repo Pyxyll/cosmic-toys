@@ -1,21 +1,21 @@
-//! Daemon-side IPC: listens on a Unix socket, runs the overlay on demand,
-//! writes the picked hex back to the connecting client (and persists it).
+//! Daemon-side IPC: listens on a Unix socket, dispatches incoming tool
+//! requests, writes the tool's response back to the connecting client.
 //!
-//! Protocol (one request per connection):
-//!   client writes  ->  `b'p'`            request a pick
-//!   server writes  <-  `<hex>\n` or ``  the picked colour, or empty on cancel
+//! Protocol (v0.3+, one request per connection):
+//!   client writes  ->  `<tool-id>\n`
+//!   server writes  <-  `<response>\n`
 //!
-//! No other bytes are defined yet. Future extensions (e.g. clear-history,
-//! query-current) would add new request bytes; the daemon is forward-
-//! compatible because unknown bytes get rejected silently.
+//! Response shape is per-tool. `color_picker` returns the hex (or empty on
+//! cancel). Tools without a return value (e.g. `find_mouse`) just write the
+//! trailing newline. Unknown tool ids get an empty response.
 
 use std::io;
 use std::path::PathBuf;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::{history, overlay};
+use crate::{find_mouse, history, overlay};
 
 pub fn socket_path() -> PathBuf {
     let runtime = std::env::var("XDG_RUNTIME_DIR")
@@ -58,40 +58,53 @@ pub async fn serve() -> io::Result<()> {
     }
 }
 
-async fn handle(mut stream: UnixStream) -> io::Result<()> {
-    let mut buf = [0u8; 1];
-    let n = stream.read(&mut buf).await?;
+async fn handle(stream: UnixStream) -> io::Result<()> {
+    let (read_half, mut write_half) = stream.into_split();
+    let mut reader = BufReader::new(read_half);
+    let mut line = String::new();
+    let n = reader.read_line(&mut line).await?;
     if n == 0 {
         return Ok(());
     }
-    if buf[0] != b'p' {
-        return Ok(());
-    }
+    let tool_id = line.trim();
 
-    let result = tokio::task::spawn_blocking(overlay::pick_color)
-        .await
-        .map_err(|e| io::Error::other(e.to_string()))?;
-
-    match result {
-        Ok(Some(hex)) => {
-            // Persist before responding; if the client disappears the entry
-            // still lives on disk.
-            if let Err(e) = history::push(&hex) {
-                eprintln!("cosmic-toysd: history write failed: {e}");
+    match tool_id {
+        "color_picker" => {
+            let result = tokio::task::spawn_blocking(overlay::pick_color)
+                .await
+                .map_err(|e| io::Error::other(e.to_string()))?;
+            match result {
+                Ok(Some(hex)) => {
+                    if let Err(e) = history::push(&hex) {
+                        eprintln!("cosmic-toysd: history write failed: {e}");
+                    }
+                    write_half.write_all(hex.as_bytes()).await?;
+                    write_half.write_all(b"\n").await?;
+                }
+                Ok(None) => {
+                    write_half.write_all(b"\n").await?;
+                }
+                Err(e) => {
+                    eprintln!("cosmic-toysd: pick failed: {e}");
+                    write_half.write_all(b"\n").await?;
+                }
             }
-            stream.write_all(hex.as_bytes()).await?;
-            stream.write_all(b"\n").await?;
         }
-        Ok(None) => {
-            // User cancelled — empty response signals "no pick".
-            stream.write_all(b"\n").await?;
+        "find_mouse" => {
+            let result = tokio::task::spawn_blocking(find_mouse::show)
+                .await
+                .map_err(|e| io::Error::other(e.to_string()))?;
+            if let Err(e) = result {
+                eprintln!("cosmic-toysd: find_mouse failed: {e}");
+            }
+            write_half.write_all(b"\n").await?;
         }
-        Err(e) => {
-            eprintln!("cosmic-toysd: pick failed: {e}");
-            stream.write_all(b"\n").await?;
+        other => {
+            eprintln!("cosmic-toysd: unknown tool '{other}'");
+            write_half.write_all(b"\n").await?;
         }
     }
-    stream.flush().await?;
+    write_half.flush().await?;
     Ok(())
 }
 
