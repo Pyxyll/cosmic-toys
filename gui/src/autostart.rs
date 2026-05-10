@@ -9,7 +9,7 @@
 use std::io;
 use std::path::PathBuf;
 
-const FILENAME: &str = "com.pyxyll.CosmicColorPicker.desktop";
+const FILENAME: &str = "com.pyxyll.CosmicToys.desktop";
 
 fn autostart_dir() -> PathBuf {
     dirs_path().join("autostart")
@@ -34,14 +34,14 @@ pub fn is_enabled() -> bool {
 
 pub fn enable() -> io::Result<()> {
     std::fs::create_dir_all(autostart_dir())?;
-    // `Exec=cosmic-color-picker` resolves via PATH; ~/.local/bin is in the
+    // `Exec=cosmic-toys` resolves via PATH; ~/.local/bin is in the
     // standard user PATH on Cosmic. If a user installs system-wide, the
     // binary is still picked up the same way.
     let body = "[Desktop Entry]\n\
 Type=Application\n\
 Name=Cosmic Color Picker\n\
 Comment=Native Wayland color picker for COSMIC\n\
-Exec=cosmic-color-picker --background\n\
+Exec=cosmic-toys --background\n\
 Icon=color-select-symbolic\n\
 NoDisplay=true\n\
 X-GNOME-Autostart-enabled=true\n";

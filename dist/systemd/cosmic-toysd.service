@@ -1,15 +1,15 @@
 [Unit]
 Description=COSMIC color-picker daemon
-Documentation=https://github.com/Pyxyll/cosmic-color-picker
+Documentation=https://github.com/Pyxyll/cosmic-toys
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/cosmic-color-pickerd
+ExecStart=/usr/bin/cosmic-toysd
 Restart=on-failure
 RestartSec=5
-# Crash logs land in journalctl --user -u cosmic-color-pickerd
+# Crash logs land in journalctl --user -u cosmic-toysd
 StandardOutput=journal
 StandardError=journal
 

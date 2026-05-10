@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=Color Picker Applet
-Comment=Quick access to the COSMIC color picker
+Name=cosmic-toys Applet
+Comment=Quick access to cosmic-toys utilities
 Type=Application
 Icon=color-select-symbolic
-Exec=cosmic-applet-color-picker
+Exec=cosmic-toys-applet
 Terminal=false
 StartupNotify=true
 Categories=COSMIC

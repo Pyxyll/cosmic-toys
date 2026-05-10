@@ -135,7 +135,7 @@ impl State {
             qh,
             surface.clone(),
             Layer::Overlay,
-            Some("cosmic-color-picker"),
+            Some("cosmic-toys"),
             Some(&wl_output),
         );
         layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);

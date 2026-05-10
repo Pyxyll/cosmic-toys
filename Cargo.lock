@@ -899,18 +899,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmic-applet-color-picker"
-version = "0.2.1"
-dependencies = [
- "cosmic-config",
- "i18n-embed",
- "i18n-embed-fl",
- "libcosmic",
- "rust-embed",
- "tokio",
-]
-
-[[package]]
 name = "cosmic-client-toolkit"
 version = "0.2.0"
 source = "git+https://github.com/pop-os/cosmic-protocols?rev=160b086#160b086abe03cd34a8a375d7fbe47b24308d1f38"
@@ -921,30 +909,6 @@ dependencies = [
  "smithay-client-toolkit 0.20.0",
  "wayland-client",
  "wayland-protocols",
-]
-
-[[package]]
-name = "cosmic-color-picker"
-version = "0.2.1"
-dependencies = [
- "cosmic-config",
- "i18n-embed",
- "i18n-embed-fl",
- "libcosmic",
- "regex",
- "rust-embed",
- "tokio",
-]
-
-[[package]]
-name = "cosmic-color-pickerd"
-version = "0.2.1"
-dependencies = [
- "image",
- "smithay-client-toolkit 0.19.2",
- "tiny-skia",
- "tokio",
- "wayland-client",
 ]
 
 [[package]]
@@ -1066,6 +1030,42 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "cosmic-toys"
+version = "0.3.0-dev"
+dependencies = [
+ "cosmic-config",
+ "i18n-embed",
+ "i18n-embed-fl",
+ "libcosmic",
+ "regex",
+ "rust-embed",
+ "tokio",
+]
+
+[[package]]
+name = "cosmic-toys-applet"
+version = "0.3.0-dev"
+dependencies = [
+ "cosmic-config",
+ "i18n-embed",
+ "i18n-embed-fl",
+ "libcosmic",
+ "rust-embed",
+ "tokio",
+]
+
+[[package]]
+name = "cosmic-toysd"
+version = "0.3.0-dev"
+dependencies = [
+ "image",
+ "smithay-client-toolkit 0.19.2",
+ "tiny-skia",
+ "tokio",
+ "wayland-client",
 ]
 
 [[package]]

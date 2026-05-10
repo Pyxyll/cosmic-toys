@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=cosmic-toys
+GenericName=COSMIC utilities
+Comment=PowerToys-style toolbox for the COSMIC desktop
+Type=Application
+Icon=com.pyxyll.CosmicToys
+Exec=cosmic-toys
+Terminal=false
+StartupNotify=true
+Categories=Utility;
+Keywords=toolbox;powertoys;color;picker;cosmic;
+StartupWMClass=com.pyxyll.CosmicToys

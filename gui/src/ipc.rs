@@ -1,4 +1,4 @@
-//! GUI-side IPC: a client that talks to the cosmic-color-pickerd daemon.
+//! GUI-side IPC: a client that talks to the cosmic-toysd daemon.
 //!
 //! Protocol matches the daemon's `ipc.rs`: write `b'p'`, read back the
 //! picked hex (or empty line on cancel). The GUI is purely a client now;
@@ -14,7 +14,7 @@ fn socket_path() -> PathBuf {
     let runtime = std::env::var("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/tmp"));
-    runtime.join("cosmic-color-pickerd.sock")
+    runtime.join("cosmic-toysd.sock")
 }
 
 /// Ask the running daemon to pick a colour. Returns:

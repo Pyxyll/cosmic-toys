@@ -1,11 +1,11 @@
 [package]
-name = "cosmic-color-pickerd"
-version = "0.2.1"
+name = "cosmic-toysd"
+version = "0.3.0-dev"
 edition = "2024"
-description = "Headless color-picker daemon for COSMIC"
+description = "Headless background daemon for cosmic-toys"
 
 [[bin]]
-name = "cosmic-color-pickerd"
+name = "cosmic-toysd"
 path = "src/main.rs"
 
 [dependencies]

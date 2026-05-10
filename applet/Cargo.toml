@@ -1,11 +1,11 @@
 [package]
-name = "cosmic-applet-color-picker"
-version = "0.2.1"
+name = "cosmic-toys-applet"
+version = "0.3.0-dev"
 edition = "2024"
-description = "COSMIC panel applet for the color picker"
+description = "COSMIC panel applet for cosmic-toys"
 
 [[bin]]
-name = "cosmic-applet-color-picker"
+name = "cosmic-toys-applet"
 path = "src/main.rs"
 
 [dependencies]

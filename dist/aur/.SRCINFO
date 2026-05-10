@@ -1,8 +1,8 @@
-pkgbase = cosmic-color-picker
-	pkgdesc = Native Wayland color picker for COSMIC desktop (daemon + GUI + panel applet)
+pkgbase = cosmic-toys
+	pkgdesc = PowerToys-style toolbox for the COSMIC desktop (daemon + GUI + panel applet)
 	pkgver = 0.2.1
 	pkgrel = 1
-	url = https://github.com/Pyxyll/cosmic-color-picker
+	url = https://github.com/Pyxyll/cosmic-toys
 	arch = x86_64
 	license = MIT
 	makedepends = rust
@@ -14,7 +14,9 @@ pkgbase = cosmic-color-picker
 	depends = libnotify
 	depends = libxkbcommon
 	depends = wayland
-	source = git+https://github.com/Pyxyll/cosmic-color-picker.git#tag=v0.2.1
+	conflicts = cosmic-color-picker
+	replaces = cosmic-color-picker
+	source = git+https://github.com/Pyxyll/cosmic-toys.git#tag=v0.2.1
 	sha256sums = SKIP
 
-pkgname = cosmic-color-picker
+pkgname = cosmic-toys

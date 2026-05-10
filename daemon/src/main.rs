@@ -1,14 +1,14 @@
-//! cosmic-color-pickerd: headless color-picker daemon.
+//! cosmic-toysd: headless color-picker daemon.
 //!
 //! Three modes, dispatched on CLI flags:
 //!
-//!   cosmic-color-pickerd            run forever; listen on the IPC socket
+//!   cosmic-toysd            run forever; listen on the IPC socket
 //!                                   and serve `pick` requests from clients
-//!   cosmic-color-pickerd --pick     one-shot pick that ALSO copies hex to
+//!   cosmic-toysd --pick     one-shot pick that ALSO copies hex to
 //!                                   the clipboard and fires a notification.
 //!                                   Used by the hotkey when no daemon is
 //!                                   running and as the v0.1-equivalent CLI.
-//!   cosmic-color-pickerd --quiet    one-shot pick that just prints the hex
+//!   cosmic-toysd --quiet    one-shot pick that just prints the hex
 //!                                   on stdout (no clipboard, no notify).
 //!                                   Used by the GUI as a subprocess fallback.
 //!
@@ -24,7 +24,32 @@ mod overlay;
 
 use std::env;
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
+
+/// One-time copy of pre-rename history from
+/// `com.pyxyll.CosmicColorPicker` (v0.2.x) to the new `com.pyxyll.CosmicToys`
+/// namespace. Mirrors the same migration the GUI does — both run it because
+/// either one could be the first invocation after upgrade. Idempotent.
+fn migrate_legacy_history() {
+    let xdg_config = env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = env::var("HOME").unwrap_or_default();
+            PathBuf::from(home).join(".config")
+        });
+    let old_dir = xdg_config.join("cosmic/com.pyxyll.CosmicColorPicker/v1");
+    let new_dir = xdg_config.join("cosmic/com.pyxyll.CosmicToys/v1");
+    if new_dir.exists() || !old_dir.exists() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(&new_dir);
+    if let Ok(entries) = std::fs::read_dir(&old_dir) {
+        for entry in entries.flatten() {
+            let _ = std::fs::copy(entry.path(), new_dir.join(entry.file_name()));
+        }
+    }
+}
 
 #[derive(Debug, Default)]
 struct CliFlags {
@@ -43,11 +68,11 @@ fn parse_args() -> Result<CliFlags, ExitCode> {
                 return Err(ExitCode::SUCCESS);
             }
             "-V" | "--version" => {
-                println!("cosmic-color-pickerd {}", env!("CARGO_PKG_VERSION"));
+                println!("cosmic-toysd {}", env!("CARGO_PKG_VERSION"));
                 return Err(ExitCode::SUCCESS);
             }
             other => {
-                eprintln!("cosmic-color-pickerd: unknown argument: {other}");
+                eprintln!("cosmic-toysd: unknown argument: {other}");
                 print_help();
                 return Err(ExitCode::from(2));
             }
@@ -57,7 +82,7 @@ fn parse_args() -> Result<CliFlags, ExitCode> {
 }
 
 fn print_help() {
-    println!("Usage: cosmic-color-pickerd [--pick | --quiet]");
+    println!("Usage: cosmic-toysd [--pick | --quiet]");
     println!();
     println!("  (no flags)    Run forever as the IPC daemon.");
     println!("  --pick        One-shot pick: copy + notify, then exit.");
@@ -69,6 +94,8 @@ fn main() -> ExitCode {
         Ok(f) => f,
         Err(code) => return code,
     };
+
+    migrate_legacy_history();
 
     if flags.pick {
         // Hand off to a running daemon if one is reachable so the result
@@ -118,7 +145,7 @@ fn run_oneshot(quiet: bool) -> ExitCode {
         Ok(Some(hex)) => {
             // Persist regardless of mode so the GUI sees one-shot picks too.
             if let Err(e) = history::push(&hex) {
-                eprintln!("cosmic-color-pickerd: history write failed: {e}");
+                eprintln!("cosmic-toysd: history write failed: {e}");
             }
             println!("{hex}");
             if !quiet {
@@ -128,7 +155,7 @@ fn run_oneshot(quiet: bool) -> ExitCode {
         }
         Ok(None) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("cosmic-color-pickerd: {e}");
+            eprintln!("cosmic-toysd: {e}");
             ExitCode::from(1)
         }
     }
@@ -138,14 +165,14 @@ fn run_daemon() -> ExitCode {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("cosmic-color-pickerd: cannot start tokio runtime: {e}");
+            eprintln!("cosmic-toysd: cannot start tokio runtime: {e}");
             return ExitCode::from(1);
         }
     };
 
     runtime.block_on(async {
         if ipc::another_daemon_running().await {
-            eprintln!("cosmic-color-pickerd: another instance is already serving the socket");
+            eprintln!("cosmic-toysd: another instance is already serving the socket");
             return ExitCode::SUCCESS;
         }
 
@@ -153,7 +180,7 @@ fn run_daemon() -> ExitCode {
         let mut sigterm = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("cosmic-color-pickerd: cannot install SIGTERM handler: {e}");
+                eprintln!("cosmic-toysd: cannot install SIGTERM handler: {e}");
                 ipc::remove_socket();
                 return ExitCode::from(1);
             }
@@ -162,11 +189,11 @@ fn run_daemon() -> ExitCode {
         let result = tokio::select! {
             r = serve => r,
             _ = sigterm.recv() => {
-                eprintln!("cosmic-color-pickerd: SIGTERM received, exiting");
+                eprintln!("cosmic-toysd: SIGTERM received, exiting");
                 Ok(())
             }
             _ = tokio::signal::ctrl_c() => {
-                eprintln!("cosmic-color-pickerd: SIGINT received, exiting");
+                eprintln!("cosmic-toysd: SIGINT received, exiting");
                 Ok(())
             }
         };
@@ -176,7 +203,7 @@ fn run_daemon() -> ExitCode {
         match result {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("cosmic-color-pickerd: serve failed: {e}");
+                eprintln!("cosmic-toysd: serve failed: {e}");
                 ExitCode::from(1)
             }
         }

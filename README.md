@@ -1,78 +1,86 @@
-# cosmic-color-picker
+# cosmic-toys
 
-A color picker for COSMIC, hacked together because nothing else worked.
+A PowerToys-style toolbox for the COSMIC desktop. One app, one settings page, one set of hotkeys — and a shared daemon underneath so each tool's hotkey works whether the GUI is open or not.
 
-`hyprpicker` does not run because `cosmic-comp` does not expose `zwlr_screencopy_v1`, and `xdg-desktop-portal-cosmic`'s `PickColor` handler is currently a `// XXX implement` stub.
-
-v0.2 turns the original standalone picker into a proper PowerToys-style app: a background daemon, a GUI window for browsing history and configuring the shortcut, and a panel applet for one-click access. All three share the same history file.
+The project started as a one-tool fix: `hyprpicker` doesn't run on COSMIC (`cosmic-comp` doesn't expose `zwlr_screencopy_v1`) and `xdg-desktop-portal-cosmic`'s `PickColor` is a `// XXX implement` stub. Color picker came first; the toolbox grew around it.
 
 ![demo](demo.gif)
 
-> Will be obsolete the moment System76 implements `PickColor` properly. Treat this as a stopgap.
+## Tools
+
+| Tool | What it does |
+|---|---|
+| **Color Picker** | Magnifier-on-cursor overlay, pixel-precision sampling, clipboard delivery, HEX/RGB/HSL/HSV/OKLCH readouts, recents history. |
+
+More tools land in upcoming releases (Mouse Find in `0.3.0`, Screen Ruler in `0.3.1`).
+
+> The Color Picker tool is a stopgap until `xdg-desktop-portal-cosmic`'s `PickColor` ships natively. Other tools are not.
 
 ## What's in the box
 
 | Binary | Job |
 |---|---|
-| `cosmic-color-pickerd` | Headless daemon. Owns the IPC socket, runs the overlay on demand, persists history. Auto-starts at login via the systemd user unit. |
-| `cosmic-color-picker` | GUI. Hero swatch, format readouts (HEX, RGB, HSL, HSV), history strip, settings page with a click-to-record keyboard shortcut binder and an autostart toggle. |
-| `cosmic-applet-color-picker` | Panel applet. Pick button + recent chip strip + "Open Color Picker..." link. |
+| `cosmic-toysd` | Headless daemon. Owns the IPC socket, runs each tool's background work on demand, persists state. Auto-starts at login via the systemd user unit. |
+| `cosmic-toys` | GUI. Sidebar nav with one entry per tool, plus Settings (hotkey binder + autostart toggle) and About. |
+| `cosmic-toys-applet` | Panel applet. Quick access to the most-used tool actions. |
 
-The hotkey, the applet, and the GUI's Pick button all funnel into the same daemon, so picks land in shared history regardless of where they came from.
+Tools, hotkeys, and the GUI all funnel through the same daemon, so any state (e.g., picked colors) is visible to every entry point.
 
 ## Install
 
 Pick whichever matches your distro. After install, enable the daemon once:
 
 ```sh
-systemctl --user enable --now cosmic-color-pickerd
+systemctl --user enable --now cosmic-toysd
 ```
 
-Add the panel applet via **COSMIC Settings → Panel → Configure panel applets → Color Picker Applet**. The GUI shows up in the launcher as "Color Picker."
+Add the panel applet via **COSMIC Settings → Panel → Configure panel applets → cosmic-toys Applet**. The GUI shows up in the launcher as "cosmic-toys."
+
+> **Upgrading from `cosmic-color-picker` v0.2.x?** The first launch of `cosmic-toys` migrates your history from `~/.config/cosmic/com.pyxyll.CosmicColorPicker/v1/` to the new namespace automatically. The old autostart entry is removed; re-toggle it from Settings if you want autostart. The old binaries (`cosmic-color-picker`, `cosmic-color-pickerd`, `cosmic-applet-color-picker`) can be uninstalled.
 
 ### Pop!_OS / Ubuntu / Debian
 
-Download the `.deb` from the [latest release](https://github.com/Pyxyll/cosmic-color-picker/releases/latest):
+Download the `.deb` from the [latest release](https://github.com/Pyxyll/cosmic-toys/releases/latest):
 
 ```sh
-sudo apt install ./cosmic-color-picker_*.deb
+sudo apt install ./cosmic-toys_*.deb
 ```
 
 ### Fedora / openSUSE
 
-Download the `.rpm` from the [latest release](https://github.com/Pyxyll/cosmic-color-picker/releases/latest):
+Download the `.rpm` from the [latest release](https://github.com/Pyxyll/cosmic-toys/releases/latest):
 
 ```sh
-sudo rpm -i cosmic-color-picker-*.rpm
+sudo rpm -i cosmic-toys-*.rpm
 ```
 
 ### Arch / CachyOS / EndeavourOS / Manjaro
 
 ```sh
-yay -S cosmic-color-picker          # or paru / your AUR helper of choice
+yay -S cosmic-toys          # or paru / your AUR helper of choice
 ```
 
 Or build the in-tree PKGBUILD directly:
 
 ```sh
-git clone https://github.com/Pyxyll/cosmic-color-picker.git
-cd cosmic-color-picker/dist/aur
+git clone https://github.com/Pyxyll/cosmic-toys.git
+cd cosmic-toys/dist/aur
 makepkg -si
 ```
 
 ### Anything else (static tarball)
 
-Grab the `cosmic-color-picker-*-x86_64-linux.tar.gz` from the [latest release](https://github.com/Pyxyll/cosmic-color-picker/releases/latest), extract, and copy the contents into your prefix of choice (`/usr/local/`, `~/.local/`, etc.).
+Grab the `cosmic-toys-*-x86_64-linux.tar.gz` from the [latest release](https://github.com/Pyxyll/cosmic-toys/releases/latest), extract, and copy the contents into your prefix of choice (`/usr/local/`, `~/.local/`, etc.).
 
 ### Build from source
 
 Requires `rust >= 1.95`, `just`, plus runtime tools: `grim`, `wl-clipboard`, `libnotify`.
 
 ```sh
-git clone https://github.com/Pyxyll/cosmic-color-picker.git
-cd cosmic-color-picker
+git clone https://github.com/Pyxyll/cosmic-toys.git
+cd cosmic-toys
 sudo just install
-systemctl --user enable --now cosmic-color-pickerd
+systemctl --user enable --now cosmic-toysd
 ```
 
 `sudo just uninstall` removes everything.
@@ -81,10 +89,10 @@ systemctl --user enable --now cosmic-color-pickerd
 
 After install:
 
-1. Open **Color Picker** from your launcher.
-2. **Settings → Keyboard shortcut**: click the button, press your desired combo. Cosmic picks it up immediately. Esc cancels.
-3. Hit your hotkey anywhere → magnifier overlay → click → hex copies + notification fires + the value lands in the GUI's history.
-4. Or click the panel applet → big Pick button + recent chips + a link to the GUI.
+1. Open **cosmic-toys** from your launcher.
+2. Pick a tool from the sidebar (Color Picker for now).
+3. **Settings → Keyboard shortcut**: click the button, press your desired combo. COSMIC picks it up immediately. Esc cancels.
+4. Hit your hotkey anywhere → the tool's overlay (magnifier for Color Picker) → result lands in clipboard + notification + the GUI's history.
 
 ## Caveats
 
@@ -96,38 +104,38 @@ After install:
 ## Architecture
 
 ```
-[Hotkey]  ──spawn──>  cosmic-color-pickerd --pick ─┐
-                                                    │
-                                                    ├─IPC─> cosmic-color-pickerd (daemon)
-                                                    │         ├── runs the overlay
-[Applet]  ──spawn──>  cosmic-color-pickerd --pick ─┤         ├── persists hex to history
-                                                    │         └── responds with hex
-[GUI Pick] ──IPC───>  cosmic-color-pickerd (daemon)─┘
-                                                    
-            ~/.config/cosmic/com.pyxyll.CosmicColorPicker/v1/history (RON list)
-                  ▲                       ▲                    ▲
-                  │ writes                │ watch_config       │ watch_config
-              daemon                    GUI                  applet
+[Hotkey]  ──spawn──>  cosmic-toys --pick ─┐
+                                          │
+                                          ├─IPC─> cosmic-toysd (daemon)
+                                          │         ├── runs the tool's overlay
+[Applet]  ──spawn──>  cosmic-toys --pick ─┤         ├── persists state per-tool
+                                          │         └── responds with the result
+[GUI Pick]──IPC─────> cosmic-toysd ───────┘
+
+  ~/.config/cosmic/com.pyxyll.CosmicToys/v1/<state> (RON, watch_config)
+        ▲                ▲                    ▲
+        │ writes         │ watch_config       │ watch_config
+      daemon            GUI                  applet
 ```
 
-The daemon owns history. GUI and applet are pure clients; both subscribe to the cosmic-config history file via `watch_config`, so picks land in their UIs without explicit messaging.
+The daemon owns each tool's persistent state. GUI and applet are pure clients; both subscribe to the cosmic-config files via `watch_config`, so updates land in their UIs without explicit messaging.
 
 ## Development
 
 ```sh
 cargo build --release --workspace          # all three binaries
-cargo build --release -p cosmic-color-picker  # GUI only
-cargo build --release -p cosmic-color-pickerd # daemon only
-cargo build --release -p cosmic-applet-color-picker # applet only
+cargo build --release -p cosmic-toys  # GUI only
+cargo build --release -p cosmic-toysd # daemon only
+cargo build --release -p cosmic-toys-applet # applet only
 ```
 
 Source structure:
 
 ```
-cosmic-color-picker/
-├── daemon/    cosmic-color-pickerd  (no libcosmic; pure tokio + sctk)
-├── gui/       cosmic-color-picker   (libcosmic Application)
-├── applet/    cosmic-applet-color-picker  (libcosmic applet)
+cosmic-toys/
+├── daemon/    cosmic-toysd  (no libcosmic; pure tokio + sctk)
+├── gui/       cosmic-toys   (libcosmic Application)
+├── applet/    cosmic-toys-applet  (libcosmic applet)
 └── dist/      systemd unit + AUR PKGBUILD
 ```
 

@@ -4,7 +4,7 @@
 //! `~/.config/cosmic/com.system76.CosmicSettings.Shortcuts/v1/custom`
 //! and is a RON-ish map of `(modifiers: [...], key: "...") -> Action`. We
 //! only ever touch the single entry whose `Spawn(...)` argument references
-//! the `cosmic-color-pickerd` binary, leaving every other entry untouched.
+//! the `cosmic-toysd` binary, leaving every other entry untouched.
 
 use std::fmt::Write as _;
 use std::io;
@@ -13,7 +13,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-const SPAWN_COMMAND: &str = "cosmic-color-pickerd --pick";
+const SPAWN_COMMAND: &str = "cosmic-toysd --pick";
 
 fn shortcuts_path() -> PathBuf {
     let base = std::env::var("XDG_CONFIG_HOME")
@@ -32,7 +32,7 @@ fn shortcuts_path() -> PathBuf {
 /// compact single-line shape Cosmic Settings tends to emit.
 static OUR_ENTRY_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"\(\s*modifiers:\s*\[([^\]]*)\]\s*,\s*key:\s*"([^"]+)"\s*,?\s*\)\s*:\s*Spawn\(\s*"([^"]*cosmic-color-pickerd[^"]*)"\s*\)\s*,?"#,
+        r#"\(\s*modifiers:\s*\[([^\]]*)\]\s*,\s*key:\s*"([^"]+)"\s*,?\s*\)\s*:\s*Spawn\(\s*"([^"]*cosmic-toysd[^"]*)"\s*\)\s*,?"#,
     )
     .expect("static regex compiles")
 });
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn matches_compact_format() {
         let text = r#"{
-    (modifiers: [Super, Shift], key: "c"): Spawn("/bin/cosmic-color-pickerd --pick"),
+    (modifiers: [Super, Shift], key: "c"): Spawn("/bin/cosmic-toysd --pick"),
 }"#;
         let cap = OUR_ENTRY_RE.captures(text).unwrap();
         assert_eq!(cap.get(2).unwrap().as_str(), "c");

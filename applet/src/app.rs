@@ -17,10 +17,10 @@ use cosmic::prelude::*;
 use cosmic::surface::action::{app_popup, destroy_popup};
 use cosmic::widget;
 
-const APP_ID: &str = "com.pyxyll.CosmicColorPickerApplet";
+const APP_ID: &str = "com.pyxyll.CosmicToysApplet";
 /// We share the same config namespace as the daemon and GUI so a single
 /// history list is the source of truth across all three components.
-const HISTORY_APP_ID: &str = "com.pyxyll.CosmicColorPicker";
+const HISTORY_APP_ID: &str = "com.pyxyll.CosmicToys";
 const HISTORY_LIMIT_DISPLAYED: usize = 8;
 
 #[derive(Default)]
@@ -195,7 +195,7 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::SpawnPicker => {
-                let _ = std::process::Command::new("cosmic-color-pickerd")
+                let _ = std::process::Command::new("cosmic-toysd")
                     .arg("--pick")
                     .spawn();
             }
@@ -214,7 +214,7 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::OpenGui => {
-                let _ = std::process::Command::new("cosmic-color-picker").spawn();
+                let _ = std::process::Command::new("cosmic-toys").spawn();
                 return self.close_popup();
             }
         }

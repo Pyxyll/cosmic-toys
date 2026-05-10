@@ -21,7 +21,7 @@ pub fn socket_path() -> PathBuf {
     let runtime = std::env::var("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/tmp"));
-    runtime.join("cosmic-color-pickerd.sock")
+    runtime.join("cosmic-toysd.sock")
 }
 
 /// Returns `Ok(true)` if a daemon was already listening (we connected and
@@ -42,7 +42,7 @@ pub async fn serve() -> io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let listener = UnixListener::bind(&path)?;
-    eprintln!("cosmic-color-pickerd: listening on {}", path.display());
+    eprintln!("cosmic-toysd: listening on {}", path.display());
 
     let pick_lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
 
@@ -52,7 +52,7 @@ pub async fn serve() -> io::Result<()> {
         tokio::spawn(async move {
             let _guard = lock.lock().await;
             if let Err(e) = handle(stream).await {
-                eprintln!("cosmic-color-pickerd: client error: {e}");
+                eprintln!("cosmic-toysd: client error: {e}");
             }
         });
     }
@@ -77,7 +77,7 @@ async fn handle(mut stream: UnixStream) -> io::Result<()> {
             // Persist before responding; if the client disappears the entry
             // still lives on disk.
             if let Err(e) = history::push(&hex) {
-                eprintln!("cosmic-color-pickerd: history write failed: {e}");
+                eprintln!("cosmic-toysd: history write failed: {e}");
             }
             stream.write_all(hex.as_bytes()).await?;
             stream.write_all(b"\n").await?;
@@ -87,7 +87,7 @@ async fn handle(mut stream: UnixStream) -> io::Result<()> {
             stream.write_all(b"\n").await?;
         }
         Err(e) => {
-            eprintln!("cosmic-color-pickerd: pick failed: {e}");
+            eprintln!("cosmic-toysd: pick failed: {e}");
             stream.write_all(b"\n").await?;
         }
     }

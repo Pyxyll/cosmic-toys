@@ -41,7 +41,7 @@ jobs:
           cargo install --locked cargo-generate-rpm
 
       - name: Build .deb
-        run: cargo deb -p cosmic-color-picker --no-build --no-strip
+        run: cargo deb -p cosmic-toys --no-build --no-strip
         # cargo-deb writes to target/debian/<pkg>_<version>_<arch>.deb
 
       - name: Build .rpm
@@ -55,16 +55,16 @@ jobs:
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           VERSION="${VERSION:-dev}"
-          STAGING="cosmic-color-picker-${VERSION}-x86_64-linux"
+          STAGING="cosmic-toys-${VERSION}-x86_64-linux"
           mkdir -p "$STAGING"/{bin,share/applications,share/icons/hicolor/scalable/apps,share/metainfo,lib/systemd/user}
-          cp target/release/cosmic-color-picker        "$STAGING/bin/"
-          cp target/release/cosmic-color-pickerd       "$STAGING/bin/"
-          cp target/release/cosmic-applet-color-picker "$STAGING/bin/"
-          cp gui/resources/com.pyxyll.CosmicColorPicker.desktop                "$STAGING/share/applications/"
-          cp applet/resources/com.pyxyll.CosmicColorPickerApplet.desktop       "$STAGING/share/applications/"
-          cp gui/resources/com.pyxyll.CosmicColorPicker.svg                    "$STAGING/share/icons/hicolor/scalable/apps/"
-          cp gui/resources/com.pyxyll.CosmicColorPicker.metainfo.xml           "$STAGING/share/metainfo/"
-          cp dist/systemd/cosmic-color-pickerd.service                         "$STAGING/lib/systemd/user/"
+          cp target/release/cosmic-toys        "$STAGING/bin/"
+          cp target/release/cosmic-toysd       "$STAGING/bin/"
+          cp target/release/cosmic-toys-applet "$STAGING/bin/"
+          cp gui/resources/com.pyxyll.CosmicToys.desktop                "$STAGING/share/applications/"
+          cp applet/resources/com.pyxyll.CosmicToysApplet.desktop       "$STAGING/share/applications/"
+          cp gui/resources/com.pyxyll.CosmicToys.svg                    "$STAGING/share/icons/hicolor/scalable/apps/"
+          cp gui/resources/com.pyxyll.CosmicToys.metainfo.xml           "$STAGING/share/metainfo/"
+          cp dist/systemd/cosmic-toysd.service                         "$STAGING/lib/systemd/user/"
           cp LICENSE README.md "$STAGING/"
           tar -czf "$STAGING.tar.gz" "$STAGING"
 
@@ -73,7 +73,7 @@ jobs:
           mkdir -p release-artifacts
           cp target/debian/*.deb              release-artifacts/
           cp target/generate-rpm/*.rpm        release-artifacts/
-          cp cosmic-color-picker-*.tar.gz     release-artifacts/
+          cp cosmic-toys-*.tar.gz     release-artifacts/
           ls -la release-artifacts/
 
       - name: Upload artifacts to GitHub release

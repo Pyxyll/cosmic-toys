@@ -1,6 +1,6 @@
 //! Persisted pick history.
 //!
-//! Stored at `$XDG_CONFIG_HOME/cosmic/com.pyxyll.CosmicColorPicker/v1/history`
+//! Stored at `$XDG_CONFIG_HOME/cosmic/com.pyxyll.CosmicToys/v1/history`
 //! (the same path cosmic-config uses for the GUI's `Config.history` field) so
 //! the GUI's `watch_config` subscription picks up daemon writes automatically.
 //!
@@ -12,7 +12,7 @@
 use std::io;
 use std::path::PathBuf;
 
-const APP_ID: &str = "com.pyxyll.CosmicColorPicker";
+const APP_ID: &str = "com.pyxyll.CosmicToys";
 const VERSION: &str = "v1";
 const FIELD: &str = "history";
 const LIMIT: usize = 64;

@@ -102,7 +102,7 @@ impl cosmic::Application for AppModel {
     type Executor = cosmic::executor::Default;
     type Flags = ();
     type Message = Message;
-    const APP_ID: &'static str = "com.pyxyll.CosmicColorPicker";
+    const APP_ID: &'static str = "com.pyxyll.CosmicToys";
 
     fn core(&self) -> &Core {
         &self.core
@@ -242,7 +242,7 @@ impl cosmic::Application for AppModel {
                             return result;
                         }
                         tokio::task::spawn_blocking(|| {
-                            let out = std::process::Command::new("cosmic-color-pickerd")
+                            let out = std::process::Command::new("cosmic-toysd")
                                 .arg("--quiet")
                                 .output()
                                 .ok()?;
@@ -449,7 +449,7 @@ impl AppModel {
         // the binary runs from `target/release` before `just install` has
         // dropped the icon into the hicolor theme path.
         let icon_handle = widget::icon::from_svg_bytes(
-            include_bytes!("../resources/com.pyxyll.CosmicColorPicker.svg").as_slice(),
+            include_bytes!("../resources/com.pyxyll.CosmicToys.svg").as_slice(),
         );
         let app_icon = widget::icon::icon(icon_handle).size(96);
 
@@ -464,7 +464,7 @@ impl AppModel {
             )))
             .push(widget::text::body(fl!("about-tagline")));
 
-        const REPO: &str = "https://github.com/Pyxyll/cosmic-color-picker";
+        const REPO: &str = "https://github.com/Pyxyll/cosmic-toys";
         let link = |label: String, url: String| -> Element<'_, Message> {
             widget::button::link(label)
                 .on_press(Message::OpenUrl(url))
