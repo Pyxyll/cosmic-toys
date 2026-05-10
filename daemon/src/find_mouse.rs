@@ -1,25 +1,38 @@
-//! "Find Mouse" tool — fullscreen dim overlay with a circular cutout to
-//! draw the eye to the cursor.
+//! "Find Mouse" tool — dim overlay with a circular cutout that follows
+//! the cursor on whichever monitor the cursor is on.
 //!
-//! v0.3.0 first cut: render once on layer-surface configure (cursor
-//! position fallback to screen center because COSMIC doesn't fire
-//! Pointer.Enter for fresh layer surfaces), hold for `DURATION_MS`,
-//! exit. No motion-tracking, no animation, no dismiss-on-move yet.
-//! v0.3.x will turn this into a proper event loop with cursor follow,
-//! fade in/out, expanding ring effect.
+//! Workflow:
+//! - Hotkey fires `cosmic-toysd run find_mouse`. Layer surfaces are
+//!   created across every output but rendered fully transparent — nothing
+//!   visible yet.
+//! - As soon as the user moves the mouse, the layer surface on the
+//!   monitor receiving pointer-motion events activates: dim background +
+//!   bright soft-edged cutout at the cursor. Other monitors stay
+//!   untouched. The cutout follows motion in real time.
+//! - User dismisses by clicking (the click is consumed by the overlay)
+//!   or pressing Esc.
+//!
+//! No auto-timeout. Frame callbacks drive redraws on the active output;
+//! inactive outputs sit idle until pointer motion brings the cursor onto
+//! them.
+//!
+//! Known limitation: COSMIC doesn't fire `Pointer.Enter` for a freshly
+//! created layer surface, so the user has to nudge the mouse for the
+//! overlay to appear at all. Acceptable trade-off — they're trying to
+//! find the cursor anyway, so they're going to nudge.
 
 use std::io;
-use std::time::Duration;
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_layer, delegate_output, delegate_pointer,
-    delegate_registry, delegate_seat, delegate_shm,
+    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output,
+    delegate_pointer, delegate_registry, delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
         Capability, SeatHandler, SeatState,
+        keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers},
         pointer::{PointerEvent, PointerEventKind, PointerHandler},
     },
     shell::{
@@ -34,13 +47,17 @@ use smithay_client_toolkit::{
 use wayland_client::{
     Connection, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
+    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
 };
 
-const DURATION_MS: u64 = 800;
 const SPOTLIGHT_RADIUS: f32 = 90.0;
 const FEATHER: f32 = 28.0;
 const DIM_ALPHA: u8 = 140;
+/// Bright ring at the cutout boundary so the spotlight reads against
+/// dark backgrounds. White, ~4px thick. Ring color + thickness should
+/// move into Config in a follow-up so users can pick an accent color.
+const RING_THICKNESS: f32 = 4.0;
+const RING_ALPHA: u8 = 220;
 
 pub fn show() -> io::Result<()> {
     let conn = Connection::connect_to_env().map_err(io::Error::other)?;
@@ -51,7 +68,8 @@ pub fn show() -> io::Result<()> {
     let compositor = CompositorState::bind(&globals, &qh).map_err(io::Error::other)?;
     let layer_shell = LayerShell::bind(&globals, &qh).map_err(io::Error::other)?;
     let shm = Shm::bind(&globals, &qh).map_err(io::Error::other)?;
-    let pool = SlotPool::new(16 * 1024 * 1024, &shm).map_err(io::Error::other)?;
+    // 64MB sized to comfortably hold three 4K outputs' worth of buffers.
+    let pool = SlotPool::new(64 * 1024 * 1024, &shm).map_err(io::Error::other)?;
 
     let mut state = State {
         registry_state: RegistryState::new(&globals),
@@ -62,28 +80,25 @@ pub fn show() -> io::Result<()> {
         shm,
         pool,
         outputs: Vec::new(),
+        keyboard: None,
         pointer: None,
+        exit: false,
     };
 
-    // Three roundtrips: first to register outputs + bind seat, second to
-    // process configure events that trigger draws, third to flush the
-    // buffer commits those draws queued. (Roundtrip flushes BEFORE
-    // dispatch, so requests we queue during dispatch sit in the outgoing
-    // buffer until the next flush — without RT #3 the compositor never
-    // sees our buffers and the overlay is invisible.)
-    event_queue
-        .roundtrip(&mut state)
-        .map_err(io::Error::other)?;
-    event_queue
-        .roundtrip(&mut state)
-        .map_err(io::Error::other)?;
+    // First roundtrip: registry processed, outputs added, layer surfaces
+    // created. Configure events arrive in subsequent dispatches and
+    // trigger initial (transparent) draws.
     event_queue
         .roundtrip(&mut state)
         .map_err(io::Error::other)?;
 
-    // Hold the spotlight on screen. The layer surfaces tear down via Drop
-    // on `state` once we return.
-    std::thread::sleep(Duration::from_millis(DURATION_MS));
+    // Event-driven loop. blocking_dispatch wakes on every compositor
+    // event: configures, frame callbacks, pointer events, key events.
+    while !state.exit {
+        event_queue
+            .blocking_dispatch(&mut state)
+            .map_err(io::Error::other)?;
+    }
 
     Ok(())
 }
@@ -94,9 +109,12 @@ struct OutputSurface {
     surface: wl_surface::WlSurface,
     size: (u32, u32),
     configured: bool,
-    /// Surface-local cursor position. None means COSMIC hasn't fired a
-    /// Pointer.Enter for our surface yet — we draw with a center fallback.
+    /// Last known surface-local cursor position.
     cursor: Option<(f32, f32)>,
+    /// True when this surface should render dim+spotlight. False until
+    /// the pointer first enters/moves on it; flipped to false on other
+    /// outputs whenever the cursor moves to a new output.
+    active: bool,
 }
 
 struct State {
@@ -108,7 +126,9 @@ struct State {
     shm: Shm,
     pool: SlotPool,
     outputs: Vec<OutputSurface>,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
+    exit: bool,
 }
 
 impl State {
@@ -131,8 +151,8 @@ impl State {
         );
         layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
         layer.set_exclusive_zone(-1);
-        // Don't grab keyboard — find_mouse should not steal focus.
-        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+        // Need keyboard so Esc can dismiss; user can also click-to-dismiss.
+        layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
         layer.commit();
 
         self.outputs.push(OutputSurface {
@@ -142,6 +162,7 @@ impl State {
             size,
             configured: false,
             cursor: None,
+            active: false,
         });
     }
 
@@ -166,44 +187,75 @@ impl State {
             }
         };
 
-        // Cursor with screen-center fallback.
-        let (cx, cy) = out
-            .cursor
-            .unwrap_or((sw as f32 * 0.5, sh as f32 * 0.5));
-        let inner = SPOTLIGHT_RADIUS;
-        let outer = SPOTLIGHT_RADIUS + FEATHER;
-        let inner2 = inner * inner;
-        let outer2 = outer * outer;
-
-        // Fill with black + variable alpha. Buffer is premultiplied
-        // ARGB8888 (BGRA byte order on little-endian); since base color is
-        // black, premultiplied channels stay 0 and only alpha varies.
-        for y in 0..sh {
-            for x in 0..sw {
-                let dx = x as f32 - cx;
-                let dy = y as f32 - cy;
-                let d2 = dx * dx + dy * dy;
-                let alpha = if d2 <= inner2 {
-                    0u8
-                } else if d2 >= outer2 {
-                    DIM_ALPHA
-                } else {
-                    let d = d2.sqrt();
-                    let t = (d - inner) / FEATHER;
-                    (DIM_ALPHA as f32 * t) as u8
-                };
-                let di = ((y * sw + x) * 4) as usize;
-                canvas[di] = 0;
-                canvas[di + 1] = 0;
-                canvas[di + 2] = 0;
-                canvas[di + 3] = alpha;
+        if !out.active {
+            // Inactive surface: fully transparent. Whatever the user has
+            // on this monitor stays untouched.
+            for px in canvas.chunks_exact_mut(4) {
+                px[0] = 0;
+                px[1] = 0;
+                px[2] = 0;
+                px[3] = 0;
+            }
+        } else {
+            // Active surface: dim outside, bright ring at the cutout edge,
+            // transparent inside. Premultiplied ARGB8888 — for black we
+            // leave RGB channels at 0; for the white ring we set them to
+            // the same value as alpha (premultiplied white).
+            let (cx, cy) = out.cursor.unwrap_or((sw as f32 * 0.5, sh as f32 * 0.5));
+            let inner = SPOTLIGHT_RADIUS;
+            let ring_inner = inner - RING_THICKNESS;
+            let outer = inner + FEATHER;
+            let ring_inner2 = ring_inner * ring_inner;
+            let inner2 = inner * inner;
+            let outer2 = outer * outer;
+            for y in 0..sh {
+                for x in 0..sw {
+                    let dx = x as f32 - cx;
+                    let dy = y as f32 - cy;
+                    let d2 = dx * dx + dy * dy;
+                    let di = ((y * sw + x) * 4) as usize;
+                    if d2 <= ring_inner2 {
+                        // Transparent cutout — see the cursor and what's
+                        // around it untouched.
+                        canvas[di] = 0;
+                        canvas[di + 1] = 0;
+                        canvas[di + 2] = 0;
+                        canvas[di + 3] = 0;
+                    } else if d2 <= inner2 {
+                        // Bright white ring (premultiplied: RGB == A).
+                        canvas[di] = RING_ALPHA;
+                        canvas[di + 1] = RING_ALPHA;
+                        canvas[di + 2] = RING_ALPHA;
+                        canvas[di + 3] = RING_ALPHA;
+                    } else if d2 >= outer2 {
+                        // Full dim outside the feather.
+                        canvas[di] = 0;
+                        canvas[di + 1] = 0;
+                        canvas[di + 2] = 0;
+                        canvas[di + 3] = DIM_ALPHA;
+                    } else {
+                        // Feather between ring and full dim.
+                        let d = d2.sqrt();
+                        let t = (d - inner) / FEATHER;
+                        let a = (DIM_ALPHA as f32 * t) as u8;
+                        canvas[di] = 0;
+                        canvas[di + 1] = 0;
+                        canvas[di + 2] = 0;
+                        canvas[di + 3] = a;
+                    }
+                }
             }
         }
 
         out.surface.damage_buffer(0, 0, sw as i32, sh as i32);
+        // Only request the next frame callback while active. Inactive
+        // surfaces don't need to keep redrawing — they only need a single
+        // transparent commit to clear any prior dim.
+        if out.active {
+            out.surface.frame(qh, out.surface.clone());
+        }
         let _ = buf.attach_to(&out.surface);
         out.surface.commit();
-        let _ = qh; // qh unused in single-frame path
     }
 }
 
@@ -227,10 +279,17 @@ impl CompositorHandler for State {
     fn frame(
         &mut self,
         _: &Connection,
-        _: &QueueHandle<Self>,
-        _: &wl_surface::WlSurface,
+        qh: &QueueHandle<Self>,
+        surface: &wl_surface::WlSurface,
         _: u32,
     ) {
+        // Frame callback: redraw if still active. Inactive surfaces don't
+        // request callbacks (see draw_output) so they don't get here.
+        if let Some(idx) = self.outputs.iter().position(|o| &o.surface == surface)
+            && self.outputs[idx].active
+        {
+            self.draw_output(idx, qh);
+        }
     }
     fn surface_enter(
         &mut self,
@@ -285,8 +344,14 @@ impl SeatHandler for State {
         seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
-        if capability == Capability::Pointer && self.pointer.is_none() {
-            self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
+        match capability {
+            Capability::Keyboard if self.keyboard.is_none() => {
+                self.keyboard = self.seat_state.get_keyboard(qh, &seat, None).ok();
+            }
+            Capability::Pointer if self.pointer.is_none() => {
+                self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
+            }
+            _ => {}
         }
     }
     fn remove_capability(
@@ -296,26 +361,90 @@ impl SeatHandler for State {
         _: wl_seat::WlSeat,
         capability: Capability,
     ) {
-        if capability == Capability::Pointer
-            && let Some(p) = self.pointer.take()
-        {
-            p.release();
+        match capability {
+            Capability::Keyboard => {
+                if let Some(k) = self.keyboard.take() {
+                    k.release();
+                }
+            }
+            Capability::Pointer => {
+                if let Some(p) = self.pointer.take() {
+                    p.release();
+                }
+            }
+            _ => {}
         }
     }
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+}
+
+impl KeyboardHandler for State {
+    fn enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+        _: &[u32],
+        _: &[Keysym],
+    ) {
+    }
+    fn leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+    ) {
+    }
+    fn press_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
+        if event.keysym == Keysym::Escape {
+            self.exit = true;
+        }
+    }
+    fn release_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: KeyEvent,
+    ) {
+    }
+    fn update_modifiers(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: Modifiers,
+        _: u32,
+    ) {
+    }
 }
 
 impl PointerHandler for State {
     fn pointer_frame(
         &mut self,
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         _: &wl_pointer::WlPointer,
         events: &[PointerEvent],
     ) {
-        // Best-effort cursor capture for outputs whose surfaces happen to
-        // see the pointer before our two roundtrips finish. The single-
-        // frame draw path doesn't update on subsequent motion.
+        // Collect indices to redraw + dismiss flag, then act, to avoid
+        // borrow conflicts (we mutate outputs while iterating events).
+        let mut to_redraw: Vec<usize> = Vec::new();
+        let mut dismiss = false;
+
         for event in events {
             let Some(idx) = self
                 .outputs
@@ -324,13 +453,43 @@ impl PointerHandler for State {
             else {
                 continue;
             };
-            if matches!(
-                event.kind,
-                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. }
-            ) {
-                let (x, y) = event.position;
-                self.outputs[idx].cursor = Some((x as f32, y as f32));
+            match event.kind {
+                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                    let pos = event.position;
+                    self.outputs[idx].cursor = Some((pos.0 as f32, pos.1 as f32));
+                    let was_active = self.outputs[idx].active;
+                    self.outputs[idx].active = true;
+                    if !was_active {
+                        to_redraw.push(idx);
+                    }
+                    // Any other currently-active surfaces lose focus —
+                    // schedule a transparent redraw to clear them.
+                    for i in 0..self.outputs.len() {
+                        if i != idx && self.outputs[i].active {
+                            self.outputs[i].active = false;
+                            to_redraw.push(i);
+                        }
+                    }
+                }
+                PointerEventKind::Leave { .. } => {
+                    if self.outputs[idx].active {
+                        self.outputs[idx].active = false;
+                        self.outputs[idx].cursor = None;
+                        to_redraw.push(idx);
+                    }
+                }
+                PointerEventKind::Press { .. } => {
+                    dismiss = true;
+                }
+                _ => {}
             }
+        }
+
+        for idx in to_redraw {
+            self.draw_output(idx, qh);
+        }
+        if dismiss {
+            self.exit = true;
         }
     }
 }
@@ -353,6 +512,8 @@ impl LayerShellHandler for State {
             self.outputs[idx].size = (w, h);
         }
         self.outputs[idx].configured = true;
+        // Initial draw: inactive (transparent). Becomes active when the
+        // user moves the mouse onto this output.
         self.draw_output(idx, qh);
     }
 }
@@ -371,6 +532,7 @@ impl ProvidesRegistryState for State {
 }
 
 delegate_compositor!(State);
+delegate_keyboard!(State);
 delegate_layer!(State);
 delegate_output!(State);
 delegate_pointer!(State);
