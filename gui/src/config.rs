@@ -17,6 +17,17 @@ pub struct Config {
     pub format_hsl: bool,
     pub format_hsv: bool,
     pub format_oklch: bool,
+    /// Find Mouse: spotlight cutout radius in pixels. The bright ring sits
+    /// just inside this radius; everything beyond fades to dim.
+    pub mouse_find_radius_px: u32,
+    /// Width of the bright ring at the cutout boundary, pixels.
+    pub mouse_find_ring_thickness_px: u32,
+    /// Alpha of the bright ring (0 = invisible, 255 = solid white).
+    pub mouse_find_ring_alpha: u8,
+    /// Alpha of the dim wash outside the cutout (0 = no dim, 255 = black).
+    pub mouse_find_dim_alpha: u8,
+    /// Soft-edge transition width between the cutout and the dim, pixels.
+    pub mouse_find_feather_px: u32,
 }
 
 impl Default for Config {
@@ -28,6 +39,11 @@ impl Default for Config {
             format_hsl: true,
             format_hsv: true,
             format_oklch: false,
+            mouse_find_radius_px: 90,
+            mouse_find_ring_thickness_px: 4,
+            mouse_find_ring_alpha: 220,
+            mouse_find_dim_alpha: 140,
+            mouse_find_feather_px: 28,
         }
     }
 }

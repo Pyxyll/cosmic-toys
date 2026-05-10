@@ -50,14 +50,58 @@ use wayland_client::{
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
 };
 
-const SPOTLIGHT_RADIUS: f32 = 90.0;
-const FEATHER: f32 = 28.0;
-const DIM_ALPHA: u8 = 140;
-/// Bright ring at the cutout boundary so the spotlight reads against
-/// dark backgrounds. White, ~4px thick. Ring color + thickness should
-/// move into Config in a follow-up so users can pick an accent color.
-const RING_THICKNESS: f32 = 4.0;
-const RING_ALPHA: u8 = 220;
+// Defaults matching gui/src/config.rs::Config::default(). The GUI writes
+// per-field cosmic-config files; if any are missing we fall back to these.
+const DEFAULT_RADIUS_PX: u32 = 90;
+const DEFAULT_RING_THICKNESS_PX: u32 = 4;
+const DEFAULT_RING_ALPHA: u8 = 220;
+const DEFAULT_DIM_ALPHA: u8 = 140;
+const DEFAULT_FEATHER_PX: u32 = 28;
+
+#[derive(Debug, Clone, Copy)]
+struct SpotlightConfig {
+    radius: f32,
+    ring_thickness: f32,
+    ring_alpha: u8,
+    dim_alpha: u8,
+    feather: f32,
+}
+
+impl SpotlightConfig {
+    fn load() -> Self {
+        Self {
+            radius: read_field("mouse_find_radius_px")
+                .unwrap_or(DEFAULT_RADIUS_PX) as f32,
+            ring_thickness: read_field("mouse_find_ring_thickness_px")
+                .unwrap_or(DEFAULT_RING_THICKNESS_PX) as f32,
+            ring_alpha: read_field("mouse_find_ring_alpha")
+                .unwrap_or(DEFAULT_RING_ALPHA as u32) as u8,
+            dim_alpha: read_field("mouse_find_dim_alpha")
+                .unwrap_or(DEFAULT_DIM_ALPHA as u32) as u8,
+            feather: read_field("mouse_find_feather_px")
+                .unwrap_or(DEFAULT_FEATHER_PX) as f32,
+        }
+    }
+}
+
+/// Read a u32-valued cosmic-config field for our app. Each field cosmic-
+/// config writes lives in its own file under the v1 dir, RON-serialized.
+/// For integers the file content is just the number. Returns None if the
+/// file is missing or unparseable, so callers can fall back to defaults.
+fn read_field(field: &str) -> Option<u32> {
+    let xdg_config = std::env::var("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_default();
+            std::path::PathBuf::from(home).join(".config")
+        });
+    let path = xdg_config
+        .join("cosmic")
+        .join("com.pyxyll.CosmicToys")
+        .join("v1")
+        .join(field);
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
+}
 
 pub fn show() -> io::Result<()> {
     let conn = Connection::connect_to_env().map_err(io::Error::other)?;
@@ -83,6 +127,7 @@ pub fn show() -> io::Result<()> {
         keyboard: None,
         pointer: None,
         exit: false,
+        config: SpotlightConfig::load(),
     };
 
     // First roundtrip: registry processed, outputs added, layer surfaces
@@ -129,6 +174,7 @@ struct State {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
     exit: bool,
+    config: SpotlightConfig,
 }
 
 impl State {
@@ -201,10 +247,11 @@ impl State {
             // transparent inside. Premultiplied ARGB8888 — for black we
             // leave RGB channels at 0; for the white ring we set them to
             // the same value as alpha (premultiplied white).
+            let cfg = self.config;
             let (cx, cy) = out.cursor.unwrap_or((sw as f32 * 0.5, sh as f32 * 0.5));
-            let inner = SPOTLIGHT_RADIUS;
-            let ring_inner = inner - RING_THICKNESS;
-            let outer = inner + FEATHER;
+            let inner = cfg.radius;
+            let ring_inner = (inner - cfg.ring_thickness).max(0.0);
+            let outer = inner + cfg.feather;
             let ring_inner2 = ring_inner * ring_inner;
             let inner2 = inner * inner;
             let outer2 = outer * outer;
@@ -223,21 +270,21 @@ impl State {
                         canvas[di + 3] = 0;
                     } else if d2 <= inner2 {
                         // Bright white ring (premultiplied: RGB == A).
-                        canvas[di] = RING_ALPHA;
-                        canvas[di + 1] = RING_ALPHA;
-                        canvas[di + 2] = RING_ALPHA;
-                        canvas[di + 3] = RING_ALPHA;
+                        canvas[di] = cfg.ring_alpha;
+                        canvas[di + 1] = cfg.ring_alpha;
+                        canvas[di + 2] = cfg.ring_alpha;
+                        canvas[di + 3] = cfg.ring_alpha;
                     } else if d2 >= outer2 {
                         // Full dim outside the feather.
                         canvas[di] = 0;
                         canvas[di + 1] = 0;
                         canvas[di + 2] = 0;
-                        canvas[di + 3] = DIM_ALPHA;
+                        canvas[di + 3] = cfg.dim_alpha;
                     } else {
                         // Feather between ring and full dim.
                         let d = d2.sqrt();
-                        let t = (d - inner) / FEATHER;
-                        let a = (DIM_ALPHA as f32 * t) as u8;
+                        let t = (d - inner) / cfg.feather;
+                        let a = (cfg.dim_alpha as f32 * t) as u8;
                         canvas[di] = 0;
                         canvas[di + 1] = 0;
                         canvas[di + 2] = 0;

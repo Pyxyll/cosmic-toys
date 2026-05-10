@@ -36,14 +36,15 @@ pub struct AppModel {
     pub(crate) nav: nav_bar::Model,
     /// Cached "is autostart enabled?" so the toggle reflects on-disk truth.
     pub(crate) autostart_enabled: bool,
-    /// Currently-bound shortcut, displayed on the Settings page button.
-    pub(crate) shortcut_current: Option<String>,
-    /// True while the user is in "press a combo" mode and we should listen
-    /// to keyboard events.
-    pub(crate) capturing_shortcut: bool,
-    /// Feedback from the last shortcut save: `Ok(human)` on success,
-    /// `Err(reason)` on parse / write failure, `None` while idle.
-    pub(crate) shortcut_status: Option<Result<String, String>>,
+    /// Currently-bound shortcuts keyed by tool id. Missing entry = unbound.
+    pub(crate) shortcut_current: std::collections::HashMap<String, String>,
+    /// `Some(tool_id)` while the user is in "press a combo" mode for that
+    /// tool; `None` when idle.
+    pub(crate) capturing_shortcut: Option<String>,
+    /// Feedback from the last shortcut save, scoped to a tool: `(tool_id,
+    /// Ok(human))` on success, `(tool_id, Err(reason))` on parse/write
+    /// failure, `None` while idle.
+    pub(crate) shortcut_status: Option<(String, Result<String, String>)>,
     /// Most recently copied value + when. Used to flash the copy icon to a
     /// check mark for a brief window after a click. `None` once the
     /// feedback has been cleared.
@@ -91,9 +92,11 @@ pub enum Message {
     UpdateConfig(Config),
     ToggleAutostart(bool),
     ToggleFormat(Format, bool),
-    /// Click on the shortcut button — start listening for the next combo.
-    BeginCaptureShortcut,
-    /// Either a real keypress while capturing, or Esc to cancel.
+    /// Click on a shortcut button — start listening for the next combo
+    /// to bind to the named tool.
+    BeginCaptureShortcut(String),
+    /// Either a real keypress while capturing, or Esc to cancel. The
+    /// target tool is read from `self.capturing_shortcut`.
     CaptureShortcut(Key, keyboard::Modifiers),
     OpenUrl(String),
     /// Drives entry animations for hero swatch + new recents chip.
@@ -102,6 +105,17 @@ pub enum Message {
     /// "Test the spotlight" button on the Mouse Find page — triggers the
     /// daemon's find_mouse path. Same effect as binding a hotkey to it.
     MouseFindTriggered,
+    /// Adjust one of the Find Mouse spotlight visuals from a slider.
+    SetMouseFindField(MouseFindField, u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseFindField {
+    Radius,
+    RingThickness,
+    RingAlpha,
+    DimAlpha,
+    Feather,
 }
 
 impl cosmic::Application for AppModel {
@@ -156,8 +170,8 @@ impl cosmic::Application for AppModel {
             history,
             nav,
             autostart_enabled: autostart::is_enabled(),
-            shortcut_current: shortcut::current_binding(),
-            capturing_shortcut: false,
+            shortcut_current: load_all_shortcuts(),
+            capturing_shortcut: None,
             shortcut_status: None,
             last_copied: None,
             hero_anim_start: None,
@@ -176,9 +190,9 @@ impl cosmic::Application for AppModel {
         // Refresh page-specific cached state on entry — covers external edits
         // to the autostart file or shortcut config since the GUI was opened.
         self.autostart_enabled = autostart::is_enabled();
-        self.shortcut_current = shortcut::current_binding();
+        self.shortcut_current = load_all_shortcuts();
         // Leaving the Settings page mid-capture should cancel cleanly.
-        self.capturing_shortcut = false;
+        self.capturing_shortcut = None;
         Task::none()
     }
 
@@ -228,7 +242,7 @@ impl cosmic::Application for AppModel {
             );
         }
 
-        if self.capturing_shortcut {
+        if self.capturing_shortcut.is_some() {
             subs.push(event::listen_with(|e, _status, _window| match e {
                 event::Event::Keyboard(keyboard::Event::KeyPressed {
                     key, modifiers, ..
@@ -363,20 +377,20 @@ impl cosmic::Application for AppModel {
                 }
                 self.autostart_enabled = autostart::is_enabled();
             }
-            Message::BeginCaptureShortcut => {
-                self.capturing_shortcut = true;
+            Message::BeginCaptureShortcut(tool_id) => {
+                self.capturing_shortcut = Some(tool_id.clone());
                 self.shortcut_status = None;
-                // Temp-unbind so the user's current combo doesn't fire the
-                // picker while they're trying to re-set it. We restore on
-                // cancel; on a real save the new binding overwrites this.
-                if let Err(e) = shortcut::clear() {
-                    eprintln!("color picker: temp-unbind failed: {e}");
+                // Temp-unbind THIS tool so the user's current combo doesn't
+                // fire mid-capture. Other tools' bindings are untouched.
+                // Restored on cancel; overwritten on real save.
+                if let Err(e) = shortcut::clear(&tool_id) {
+                    eprintln!("cosmic-toys: temp-unbind {tool_id} failed: {e}");
                 }
             }
             Message::CaptureShortcut(key, modifiers) => {
-                if !self.capturing_shortcut {
+                let Some(tool_id) = self.capturing_shortcut.clone() else {
                     return Task::none();
-                }
+                };
                 // Modifier keys on their own don't complete a binding —
                 // wait for an actual key while the user holds them.
                 if is_modifier_key(&key) {
@@ -385,32 +399,34 @@ impl cosmic::Application for AppModel {
                 // Esc with no modifiers cancels the capture and restores
                 // whatever we cleared on entry.
                 if matches!(&key, Key::Named(Named::Escape)) && modifiers.is_empty() {
-                    self.capturing_shortcut = false;
-                    if let Some(prev) = self.shortcut_current.clone()
-                        && let Err(e) = shortcut::set_binding(&prev)
+                    self.capturing_shortcut = None;
+                    if let Some(prev) = self.shortcut_current.get(&tool_id).cloned()
+                        && let Err(e) = shortcut::set_binding(&tool_id, &prev)
                     {
-                        eprintln!("color picker: restore previous binding failed: {e}");
+                        eprintln!("cosmic-toys: restore previous {tool_id} binding failed: {e}");
                     }
                     return Task::none();
                 }
-                self.capturing_shortcut = false;
+                self.capturing_shortcut = None;
                 let combo = format_combo(modifiers, &key);
                 if combo.is_empty() {
-                    self.shortcut_status = Some(Err("Unsupported key".to_string()));
+                    self.shortcut_status =
+                        Some((tool_id.clone(), Err("Unsupported key".to_string())));
                     // Restore the binding we cleared so we're not left in a
                     // half-applied state.
-                    if let Some(prev) = self.shortcut_current.clone() {
-                        let _ = shortcut::set_binding(&prev);
+                    if let Some(prev) = self.shortcut_current.get(&tool_id).cloned() {
+                        let _ = shortcut::set_binding(&tool_id, &prev);
                     }
                     return Task::none();
                 }
-                self.shortcut_status = Some(match shortcut::set_binding(&combo) {
-                    Ok(()) => {
-                        self.shortcut_current = Some(combo.clone());
-                        Ok(combo)
-                    }
-                    Err(e) => Err(e),
-                });
+                self.shortcut_status =
+                    Some((tool_id.clone(), match shortcut::set_binding(&tool_id, &combo) {
+                        Ok(()) => {
+                            self.shortcut_current.insert(tool_id, combo.clone());
+                            Ok(combo)
+                        }
+                        Err(e) => Err(e),
+                    }));
             }
             Message::OpenUrl(url) => {
                 let _ = std::process::Command::new("xdg-open").arg(url).spawn();
@@ -434,6 +450,31 @@ impl cosmic::Application for AppModel {
                     },
                     |_| cosmic::Action::None,
                 );
+            }
+            Message::SetMouseFindField(field, value) => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let mut new_config = self.config.clone();
+                    match field {
+                        MouseFindField::Radius => {
+                            new_config.mouse_find_radius_px = value;
+                        }
+                        MouseFindField::RingThickness => {
+                            new_config.mouse_find_ring_thickness_px = value;
+                        }
+                        MouseFindField::RingAlpha => {
+                            new_config.mouse_find_ring_alpha = value.min(255) as u8;
+                        }
+                        MouseFindField::DimAlpha => {
+                            new_config.mouse_find_dim_alpha = value.min(255) as u8;
+                        }
+                        MouseFindField::Feather => {
+                            new_config.mouse_find_feather_px = value;
+                        }
+                    }
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
             }
         }
         Task::none()
@@ -498,42 +539,16 @@ impl AppModel {
     }
 
     fn settings_page(&self) -> Element<'_, Message> {
-        // While idle: a button with the current binding (click to record).
-        // While capturing: a labelled "listening" indicator instead of a
-        // button so the longer prompt text isn't constrained to the button
-        // width and overflowing its container.
-        let trailing: Element<'_, Message> = if self.capturing_shortcut {
-            widget::container(widget::text::body(fl!("shortcut-listening")))
-                .padding([4, 12])
-                .into()
-        } else {
-            let label = self
-                .shortcut_current
-                .clone()
-                .unwrap_or_else(|| fl!("shortcut-unset"));
-            widget::button::standard(label)
-                .on_press(Message::BeginCaptureShortcut)
-                .into()
-        };
-
-        let mut shortcut_col = widget::Column::new()
-            .spacing(6)
-            .push(widget::settings::item(fl!("shortcut-label"), trailing))
-            .push(widget::text::caption(fl!("shortcut-hint")).width(Length::Fill));
-
-        if let Some(status) = &self.shortcut_status {
-            let line = match status {
-                Ok(combo) => widget::text::caption(format!("✓  {combo}")),
-                Err(e) => widget::text::caption(format!("✗  {e}")),
-            };
-            shortcut_col = shortcut_col.push(line);
-        }
-
-        let shortcut_section = widget::settings::section()
-            .title(fl!("settings-shortcut"))
-            .add(shortcut_col);
+        // One shortcut section per tool. Iterate explicitly so each tool's
+        // section gets its own title + per-tool capture button + per-tool
+        // status line.
+        let picker_shortcut =
+            self.shortcut_section_for("color_picker", fl!("settings-shortcut-picker"));
+        let mouse_shortcut =
+            self.shortcut_section_for("find_mouse", fl!("settings-shortcut-mouse-find"));
 
         let formats_section = crate::tools::color_picker::settings_section(self);
+        let mouse_find_section = crate::tools::mouse_find::settings_section(self);
 
         let autostart_section = widget::settings::section()
             .title(fl!("settings-startup"))
@@ -545,9 +560,53 @@ impl AppModel {
 
         widget::Column::new()
             .spacing(16)
-            .push(shortcut_section)
+            .push(picker_shortcut)
+            .push(mouse_shortcut)
             .push(formats_section)
+            .push(mouse_find_section)
             .push(autostart_section)
+            .into()
+    }
+
+    fn shortcut_section_for<'a>(
+        &'a self,
+        tool_id: &'a str,
+        title: String,
+    ) -> Element<'a, Message> {
+        let is_capturing = self.capturing_shortcut.as_deref() == Some(tool_id);
+        let trailing: Element<'_, Message> = if is_capturing {
+            widget::container(widget::text::body(fl!("shortcut-listening")))
+                .padding([4, 12])
+                .into()
+        } else {
+            let label = self
+                .shortcut_current
+                .get(tool_id)
+                .cloned()
+                .unwrap_or_else(|| fl!("shortcut-unset"));
+            widget::button::standard(label)
+                .on_press(Message::BeginCaptureShortcut(tool_id.to_string()))
+                .into()
+        };
+
+        let mut col = widget::Column::new()
+            .spacing(6)
+            .push(widget::settings::item(fl!("shortcut-label"), trailing))
+            .push(widget::text::caption(fl!("shortcut-hint")).width(Length::Fill));
+
+        if let Some((status_tool, status)) = &self.shortcut_status
+            && status_tool == tool_id
+        {
+            let line = match status {
+                Ok(combo) => widget::text::caption(format!("✓  {combo}")),
+                Err(e) => widget::text::caption(format!("✗  {e}")),
+            };
+            col = col.push(line);
+        }
+
+        widget::settings::section()
+            .title(title)
+            .add(col)
             .into()
     }
 
@@ -573,6 +632,19 @@ pub(crate) fn anim_progress(start: Option<Instant>) -> f32 {
 
 pub(crate) fn ease_out_cubic(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
+}
+
+/// Read the currently-bound shortcut for each known tool from the COSMIC
+/// shortcuts config. Tools without a binding are simply absent from the
+/// returned map.
+fn load_all_shortcuts() -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    for tool in ["color_picker", "find_mouse"] {
+        if let Some(combo) = shortcut::current_binding(tool) {
+            out.insert(tool.to_string(), combo);
+        }
+    }
+    out
 }
 
 fn parse_history(raw: &[String]) -> Vec<PickedColor> {
