@@ -37,10 +37,12 @@ fn spawn_command(tool: &str) -> String {
 /// Captures any of our entries, regardless of which tool. Group 1 =
 /// modifiers list, group 2 = key, group 3 = full Spawn argument string.
 /// Matches both the multi-line shape we write and the compact single-line
-/// shape Cosmic Settings emits.
+/// shape Cosmic Settings emits. Also catches legacy v0.2.x binaries
+/// (`cosmic-color-picker`, `cosmic-color-pickerd`) so a Settings rebind
+/// can clean them up.
 static OUR_ENTRY_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"\(\s*modifiers:\s*\[([^\]]*)\]\s*,\s*key:\s*"([^"]+)"\s*,?\s*\)\s*:\s*Spawn\(\s*"((?:[^"]*cosmic-toys(?:d)?[^"]*))"\s*\)\s*,?"#,
+        r#"\(\s*modifiers:\s*\[([^\]]*)\]\s*,\s*key:\s*"([^"]+)"\s*,?\s*\)\s*:\s*Spawn\(\s*"((?:[^"]*(?:cosmic-toys(?:d)?|cosmic-color-picker(?:d)?)[^"]*))"\s*\)\s*,?"#,
     )
     .expect("static regex compiles")
 });
@@ -49,9 +51,11 @@ fn cmd_matches_tool(cmd: &str, tool: &str) -> bool {
     if cmd.contains(&spawn_command(tool)) {
         return true;
     }
-    // Legacy alias: v0.2.x bound color_picker as `cosmic-toysd --pick`
-    // (or `cosmic-toys --pick`). Treat both as the picker's binding.
-    if tool == "color_picker" && (cmd.contains("--pick") || cmd.ends_with("--pick")) {
+    // Legacy alias: v0.2.x bound color_picker as `cosmic-toysd --pick`,
+    // `cosmic-toys --pick`, or `cosmic-color-pickerd --pick`. Treat any
+    // `--pick` form as the picker's binding so Settings rebinds clean
+    // them up too.
+    if tool == "color_picker" && cmd.contains("--pick") {
         return true;
     }
     false
