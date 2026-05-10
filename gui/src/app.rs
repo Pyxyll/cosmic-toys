@@ -56,6 +56,9 @@ pub struct AppModel {
     /// Set when a new chip was prepended to Recents; chip[0] slides + fades
     /// in. Triggered only by PickResult, not SelectHistory.
     pub(crate) chip_anim_start: Option<Instant>,
+    /// Which Settings sub-page is currently shown. Resets to `Hub` whenever
+    /// the user navigates to the Settings sidebar entry.
+    pub(crate) settings_subpage: SettingsSubPage,
 }
 
 const COPY_FEEDBACK_MS: u64 = 1500;
@@ -69,6 +72,16 @@ pub(crate) enum Page {
     MouseFind,
     Settings,
     About,
+}
+
+/// Drill-in state for the Settings sidebar entry. Each tool gets its own
+/// sub-page; selecting Settings from the sidebar always returns to Hub.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsSubPage {
+    Hub,
+    ColorPicker,
+    MouseFind,
+    App,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +120,15 @@ pub enum Message {
     MouseFindTriggered,
     /// Adjust one of the Find Mouse spotlight visuals from a slider.
     SetMouseFindField(MouseFindField, u32),
+    /// Update the Find Mouse ring color from the hex input. Stored verbatim
+    /// so an in-progress invalid string round-trips; the daemon parses on
+    /// render and falls back to white if unparseable.
+    SetMouseFindRingColor(String),
+    /// "Reset to defaults" button on the Find Mouse settings card —
+    /// snaps every spotlight field back to `Config::default()`.
+    ResetMouseFindDefaults,
+    /// Drill into / back-out of a Settings sub-page.
+    ShowSettingsSubPage(SettingsSubPage),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,6 +198,7 @@ impl cosmic::Application for AppModel {
             last_copied: None,
             hero_anim_start: None,
             chip_anim_start: None,
+            settings_subpage: SettingsSubPage::Hub,
         };
 
         (app, Task::none())
@@ -191,8 +214,10 @@ impl cosmic::Application for AppModel {
         // to the autostart file or shortcut config since the GUI was opened.
         self.autostart_enabled = autostart::is_enabled();
         self.shortcut_current = load_all_shortcuts();
-        // Leaving the Settings page mid-capture should cancel cleanly.
+        // Leaving Settings mid-capture should cancel cleanly. Also reset
+        // the drill-in so re-entering Settings always lands on the hub.
         self.capturing_shortcut = None;
+        self.settings_subpage = SettingsSubPage::Hub;
         Task::none()
     }
 
@@ -476,6 +501,36 @@ impl cosmic::Application for AppModel {
                     self.config = new_config;
                 }
             }
+            Message::SetMouseFindRingColor(hex) => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let mut new_config = self.config.clone();
+                    new_config.mouse_find_ring_color = hex;
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
+            Message::ShowSettingsSubPage(sub) => {
+                self.settings_subpage = sub;
+                // Cancel any in-flight shortcut capture when leaving a sub
+                // (the capture binding belongs to the sub-page we're leaving).
+                self.capturing_shortcut = None;
+            }
+            Message::ResetMouseFindDefaults => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let defaults = Config::default();
+                    let mut new_config = self.config.clone();
+                    new_config.mouse_find_radius_px = defaults.mouse_find_radius_px;
+                    new_config.mouse_find_ring_thickness_px = defaults.mouse_find_ring_thickness_px;
+                    new_config.mouse_find_ring_alpha = defaults.mouse_find_ring_alpha;
+                    new_config.mouse_find_dim_alpha = defaults.mouse_find_dim_alpha;
+                    new_config.mouse_find_feather_px = defaults.mouse_find_feather_px;
+                    new_config.mouse_find_ring_color = defaults.mouse_find_ring_color;
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
         }
         Task::none()
     }
@@ -539,32 +594,111 @@ impl AppModel {
     }
 
     fn settings_page(&self) -> Element<'_, Message> {
-        // One shortcut section per tool. Iterate explicitly so each tool's
-        // section gets its own title + per-tool capture button + per-tool
-        // status line.
-        let picker_shortcut =
+        match self.settings_subpage {
+            SettingsSubPage::Hub => self.settings_hub(),
+            SettingsSubPage::ColorPicker => self.settings_sub_color_picker(),
+            SettingsSubPage::MouseFind => self.settings_sub_mouse_find(),
+            SettingsSubPage::App => self.settings_sub_app(),
+        }
+    }
+
+    /// Settings hub: clickable rows that drill into per-tool sub-pages
+    /// plus an "App" row for app-wide preferences.
+    fn settings_hub(&self) -> Element<'_, Message> {
+        let row = |label: String, icon: &'static str, target: SettingsSubPage| -> Element<'_, Message> {
+            widget::button::custom(
+                widget::Row::new()
+                    .spacing(12)
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .push(widget::icon::from_name(icon).size(24))
+                    .push(widget::text::body(label).width(Length::Fill))
+                    .push(widget::icon::from_name("go-next-symbolic").size(16)),
+            )
+            .width(Length::Fill)
+            .padding([12, 16])
+            .class(cosmic::theme::style::Button::MenuItem)
+            .on_press(Message::ShowSettingsSubPage(target))
+            .into()
+        };
+
+        widget::settings::section()
+            .title(fl!("settings-hub-title"))
+            .add(row(
+                fl!("settings-hub-color-picker"),
+                "color-select-symbolic",
+                SettingsSubPage::ColorPicker,
+            ))
+            .add(row(
+                fl!("settings-hub-mouse-find"),
+                "input-mouse-symbolic",
+                SettingsSubPage::MouseFind,
+            ))
+            .add(row(
+                fl!("settings-hub-app"),
+                "preferences-system-symbolic",
+                SettingsSubPage::App,
+            ))
+            .into()
+    }
+
+    /// Color Picker sub-page: its hotkey binder + format toggles.
+    fn settings_sub_color_picker(&self) -> Element<'_, Message> {
+        let header = self.settings_sub_header(fl!("settings-hub-color-picker"));
+        let shortcut =
             self.shortcut_section_for("color_picker", fl!("settings-shortcut-picker"));
-        let mouse_shortcut =
+        let formats = crate::tools::color_picker::settings_section(self);
+        widget::Column::new()
+            .spacing(16)
+            .push(header)
+            .push(shortcut)
+            .push(formats)
+            .into()
+    }
+
+    /// Find Mouse sub-page: its hotkey binder + spotlight visuals.
+    fn settings_sub_mouse_find(&self) -> Element<'_, Message> {
+        let header = self.settings_sub_header(fl!("settings-hub-mouse-find"));
+        let shortcut =
             self.shortcut_section_for("find_mouse", fl!("settings-shortcut-mouse-find"));
+        let spotlight = crate::tools::mouse_find::settings_section(self);
+        widget::Column::new()
+            .spacing(16)
+            .push(header)
+            .push(shortcut)
+            .push(spotlight)
+            .into()
+    }
 
-        let formats_section = crate::tools::color_picker::settings_section(self);
-        let mouse_find_section = crate::tools::mouse_find::settings_section(self);
-
-        let autostart_section = widget::settings::section()
+    /// App-level sub-page: autostart (and anywhere else we land app-wide
+    /// prefs going forward).
+    fn settings_sub_app(&self) -> Element<'_, Message> {
+        let header = self.settings_sub_header(fl!("settings-hub-app"));
+        let autostart = widget::settings::section()
             .title(fl!("settings-startup"))
             .add(widget::settings::item(
                 fl!("settings-autostart"),
                 widget::toggler(self.autostart_enabled).on_toggle(Message::ToggleAutostart),
             ))
             .add(widget::text::caption(fl!("settings-autostart-hint")));
-
         widget::Column::new()
             .spacing(16)
-            .push(picker_shortcut)
-            .push(mouse_shortcut)
-            .push(formats_section)
-            .push(mouse_find_section)
-            .push(autostart_section)
+            .push(header)
+            .push(autostart)
+            .into()
+    }
+
+    /// "← Back" button + sub-page title, rendered above each sub-page's
+    /// content.
+    fn settings_sub_header(&self, title: String) -> Element<'_, Message> {
+        widget::Row::new()
+            .spacing(12)
+            .align_y(cosmic::iced::Alignment::Center)
+            .push(
+                widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                    .extra_small()
+                    .on_press(Message::ShowSettingsSubPage(SettingsSubPage::Hub)),
+            )
+            .push(widget::text::title3(title))
             .into()
     }
 

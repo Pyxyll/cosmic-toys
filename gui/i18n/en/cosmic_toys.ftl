@@ -13,6 +13,8 @@ mouse-find-ring-thickness = Ring thickness (px)
 mouse-find-ring-alpha = Ring brightness
 mouse-find-dim-alpha = Dim strength
 mouse-find-feather = Feather (px)
+mouse-find-ring-color = Ring color (#RRGGBB)
+mouse-find-reset = Reset to defaults
 
 welcome-title = Pick a color
 welcome-body = Hit your keyboard shortcut, or use the button at the top right to capture a color from anywhere on screen.
@@ -33,6 +35,10 @@ history-clear = Clear
 
 settings-formats = Display formats
 
+settings-hub-title = Settings
+settings-hub-color-picker = Color Picker
+settings-hub-mouse-find = Find Mouse
+settings-hub-app = App
 settings-shortcut = Keyboard shortcut
 settings-shortcut-picker = Color Picker shortcut
 settings-shortcut-mouse-find = Find Mouse shortcut

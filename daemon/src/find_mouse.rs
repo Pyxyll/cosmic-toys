@@ -65,6 +65,8 @@ struct SpotlightConfig {
     ring_alpha: u8,
     dim_alpha: u8,
     feather: f32,
+    /// Ring RGB. White by default, taken from `mouse_find_ring_color`.
+    ring_rgb: (u8, u8, u8),
 }
 
 impl SpotlightConfig {
@@ -80,8 +82,38 @@ impl SpotlightConfig {
                 .unwrap_or(DEFAULT_DIM_ALPHA as u32) as u8,
             feather: read_field("mouse_find_feather_px")
                 .unwrap_or(DEFAULT_FEATHER_PX) as f32,
+            ring_rgb: read_color_field("mouse_find_ring_color")
+                .unwrap_or((255, 255, 255)),
         }
     }
+}
+
+/// Read a string cosmic-config field, expecting a `#RRGGBB` hex color.
+/// cosmic-config writes strings as RON-quoted, e.g. `"#FFFFFF"`, so we
+/// trim the quotes before parsing. Returns None on any parse failure
+/// so callers fall back to white.
+fn read_color_field(field: &str) -> Option<(u8, u8, u8)> {
+    let xdg_config = std::env::var("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_default();
+            std::path::PathBuf::from(home).join(".config")
+        });
+    let path = xdg_config
+        .join("cosmic")
+        .join("com.pyxyll.CosmicToys")
+        .join("v1")
+        .join(field);
+    let raw = std::fs::read_to_string(path).ok()?;
+    let s = raw.trim().trim_matches('"');
+    let s = s.trim_start_matches('#');
+    if s.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+    Some((r, g, b))
 }
 
 /// Read a u32-valued cosmic-config field for our app. Each field cosmic-
@@ -269,10 +301,14 @@ impl State {
                         canvas[di + 2] = 0;
                         canvas[di + 3] = 0;
                     } else if d2 <= inner2 {
-                        // Bright white ring (premultiplied: RGB == A).
-                        canvas[di] = cfg.ring_alpha;
-                        canvas[di + 1] = cfg.ring_alpha;
-                        canvas[di + 2] = cfg.ring_alpha;
+                        // Configurable-color ring. Premultiplied ARGB8888:
+                        // each channel = color_channel * alpha / 255 (in
+                        // BGRA byte order on little-endian).
+                        let (r, g, b) = cfg.ring_rgb;
+                        let a = cfg.ring_alpha as u32;
+                        canvas[di] = ((b as u32 * a) / 255) as u8;
+                        canvas[di + 1] = ((g as u32 * a) / 255) as u8;
+                        canvas[di + 2] = ((r as u32 * a) / 255) as u8;
                         canvas[di + 3] = cfg.ring_alpha;
                     } else if d2 >= outer2 {
                         // Full dim outside the feather.

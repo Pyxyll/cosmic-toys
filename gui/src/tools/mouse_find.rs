@@ -49,6 +49,30 @@ pub fn settings_section<'a>(app: &'a AppModel) -> Element<'a, Message> {
         )
     };
 
+    let color_input = widget::text_input(
+        "#FFFFFF",
+        cfg.mouse_find_ring_color.clone(),
+    )
+    .on_input(Message::SetMouseFindRingColor)
+    .width(Length::Fixed(180.0));
+
+    let color_row = widget::settings::item(
+        fl!("mouse-find-ring-color"),
+        widget::Row::new()
+            .spacing(12)
+            .align_y(cosmic::iced::Alignment::Center)
+            .push(color_input),
+    );
+
+    let reset_row = widget::Row::new()
+        .padding(8)
+        .align_y(cosmic::iced::Alignment::Center)
+        .push(widget::Space::new().width(Length::Fill))
+        .push(
+            widget::button::standard(fl!("mouse-find-reset"))
+                .on_press(Message::ResetMouseFindDefaults),
+        );
+
     widget::settings::section()
         .title(fl!("settings-mouse-find"))
         .add(row(
@@ -81,6 +105,8 @@ pub fn settings_section<'a>(app: &'a AppModel) -> Element<'a, Message> {
             0..=64,
             MouseFindField::Feather,
         ))
+        .add(color_row)
+        .add(reset_row)
         .into()
 }
 

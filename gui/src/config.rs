@@ -28,6 +28,10 @@ pub struct Config {
     pub mouse_find_dim_alpha: u8,
     /// Soft-edge transition width between the cutout and the dim, pixels.
     pub mouse_find_feather_px: u32,
+    /// Ring color as hex `#RRGGBB`. Defaults to white. Plan to add an
+    /// "Use COSMIC accent color" option in a follow-up that snaps this
+    /// to the current desktop accent.
+    pub mouse_find_ring_color: String,
 }
 
 impl Default for Config {
@@ -44,6 +48,7 @@ impl Default for Config {
             mouse_find_ring_alpha: 220,
             mouse_find_dim_alpha: 140,
             mouse_find_feather_px: 28,
+            mouse_find_ring_color: "#FFFFFF".to_string(),
         }
     }
 }
