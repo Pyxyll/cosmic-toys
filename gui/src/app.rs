@@ -135,6 +135,35 @@ pub enum Message {
     ResetMouseFindDefaults,
     /// Drill into / back-out of a Settings sub-page.
     ShowSettingsSubPage(SettingsSubPage),
+    /// Slider tweak on the Screen Ruler settings card.
+    SetScreenRulerField(ScreenRulerField, u32),
+    /// Hex color input on the Screen Ruler settings card.
+    SetScreenRulerLineColor(String),
+    /// "Magnifier on by default" toggle on the Screen Ruler settings card.
+    SetScreenRulerMagnifierDefault(bool),
+    /// Line style picker on the Screen Ruler settings card (one of
+    /// "solid" / "dotted" / "dashed").
+    SetScreenRulerLineStyle(String),
+    /// Toggle one of the four angle-snap groups (cardinals / diagonals /
+    /// thirds / octants).
+    SetScreenRulerSnapGroup(SnapGroup, bool),
+    /// Reset all Screen Ruler config fields to Config::default().
+    ResetScreenRulerDefaults,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapGroup {
+    Cardinals,
+    Diagonals,
+    Thirds,
+    Octants,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenRulerField {
+    LineThickness,
+    CrosshairAlpha,
+    MagnifierZoom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -535,6 +564,85 @@ impl cosmic::Application for AppModel {
                 // (the capture binding belongs to the sub-page we're leaving).
                 self.capturing_shortcut = None;
             }
+            Message::SetScreenRulerField(field, value) => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let mut new_config = self.config.clone();
+                    match field {
+                        ScreenRulerField::LineThickness => {
+                            new_config.screen_ruler_line_thickness_px = value;
+                        }
+                        ScreenRulerField::CrosshairAlpha => {
+                            new_config.screen_ruler_crosshair_alpha = value.min(255) as u8;
+                        }
+                        ScreenRulerField::MagnifierZoom => {
+                            new_config.screen_ruler_magnifier_zoom = value;
+                        }
+                    }
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
+            Message::SetScreenRulerLineColor(hex) => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let mut new_config = self.config.clone();
+                    new_config.screen_ruler_line_color = hex;
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
+            Message::SetScreenRulerMagnifierDefault(on) => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let mut new_config = self.config.clone();
+                    new_config.screen_ruler_magnifier_default = on;
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
+            Message::SetScreenRulerLineStyle(style) => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let mut new_config = self.config.clone();
+                    new_config.screen_ruler_line_style = style;
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
+            Message::SetScreenRulerSnapGroup(group, on) => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let mut new_config = self.config.clone();
+                    match group {
+                        SnapGroup::Cardinals => new_config.screen_ruler_snap_cardinals = on,
+                        SnapGroup::Diagonals => new_config.screen_ruler_snap_diagonals = on,
+                        SnapGroup::Thirds => new_config.screen_ruler_snap_thirds = on,
+                        SnapGroup::Octants => new_config.screen_ruler_snap_octants = on,
+                    }
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
+            Message::ResetScreenRulerDefaults => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let defaults = Config::default();
+                    let mut new_config = self.config.clone();
+                    new_config.screen_ruler_line_thickness_px = defaults.screen_ruler_line_thickness_px;
+                    new_config.screen_ruler_line_color = defaults.screen_ruler_line_color;
+                    new_config.screen_ruler_crosshair_alpha = defaults.screen_ruler_crosshair_alpha;
+                    new_config.screen_ruler_magnifier_zoom = defaults.screen_ruler_magnifier_zoom;
+                    new_config.screen_ruler_magnifier_default = defaults.screen_ruler_magnifier_default;
+                    new_config.screen_ruler_line_style = defaults.screen_ruler_line_style;
+                    new_config.screen_ruler_snap_cardinals = defaults.screen_ruler_snap_cardinals;
+                    new_config.screen_ruler_snap_diagonals = defaults.screen_ruler_snap_diagonals;
+                    new_config.screen_ruler_snap_thirds = defaults.screen_ruler_snap_thirds;
+                    new_config.screen_ruler_snap_octants = defaults.screen_ruler_snap_octants;
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
             Message::ResetMouseFindDefaults => {
                 let app_id = <Self as cosmic::Application>::APP_ID;
                 if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
@@ -666,16 +774,17 @@ impl AppModel {
             .into()
     }
 
-    /// Screen Ruler sub-page: its hotkey binder. Tool-specific visual
-    /// config (line color, label background, etc.) is a v0.3.x add.
+    /// Screen Ruler sub-page: hotkey binder + visual config card.
     fn settings_sub_screen_ruler(&self) -> Element<'_, Message> {
         let header = self.settings_sub_header(fl!("settings-hub-screen-ruler"));
         let shortcut =
             self.shortcut_section_for("screen_ruler", fl!("settings-shortcut-screen-ruler"));
+        let visuals = crate::tools::screen_ruler::settings_section(self);
         widget::Column::new()
             .spacing(16)
             .push(header)
             .push(shortcut)
+            .push(visuals)
             .into()
     }
 

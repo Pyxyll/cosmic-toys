@@ -32,6 +32,29 @@ pub struct Config {
     /// "Use COSMIC accent color" option in a follow-up that snaps this
     /// to the current desktop accent.
     pub mouse_find_ring_color: String,
+    /// Screen Ruler: measurement line / rectangle stroke thickness, px.
+    pub screen_ruler_line_thickness_px: u32,
+    /// Screen Ruler line + endpoint + rect color as `#RRGGBB`.
+    pub screen_ruler_line_color: String,
+    /// Alpha (0..255) of the faint crosshair following the cursor when
+    /// no drag is in progress.
+    pub screen_ruler_crosshair_alpha: u8,
+    /// Magnifier loupe zoom factor (pixels per source pixel).
+    pub screen_ruler_magnifier_zoom: u32,
+    /// If true, the magnifier loupe is on the moment the overlay opens;
+    /// otherwise the user has to press M to enable it.
+    pub screen_ruler_magnifier_default: bool,
+    /// One of `"solid"`, `"dotted"`, `"dashed"`. Daemon falls back to
+    /// solid for any other value.
+    pub screen_ruler_line_style: String,
+    /// Snap a Shift-held drag to the nearest of these angle groups. The
+    /// four groups together cover the seven canonical angles
+    /// 0/15/30/45/60/75/90; toggle a group to include / exclude all of
+    /// its angles. With every group off, Shift has no effect on the line.
+    pub screen_ruler_snap_cardinals: bool, // 0°, 90°
+    pub screen_ruler_snap_diagonals: bool, // 45°
+    pub screen_ruler_snap_thirds: bool,    // 30°, 60°
+    pub screen_ruler_snap_octants: bool,   // 15°, 75°
 }
 
 impl Default for Config {
@@ -49,6 +72,16 @@ impl Default for Config {
             mouse_find_dim_alpha: 140,
             mouse_find_feather_px: 28,
             mouse_find_ring_color: "#FFFFFF".to_string(),
+            screen_ruler_line_thickness_px: 2,
+            screen_ruler_line_color: "#FFFFFF".to_string(),
+            screen_ruler_crosshair_alpha: 90,
+            screen_ruler_magnifier_zoom: 8,
+            screen_ruler_magnifier_default: false,
+            screen_ruler_line_style: "solid".to_string(),
+            screen_ruler_snap_cardinals: true,
+            screen_ruler_snap_diagonals: true,
+            screen_ruler_snap_thirds: false,
+            screen_ruler_snap_octants: false,
         }
     }
 }
