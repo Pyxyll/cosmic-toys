@@ -2,6 +2,7 @@ app-title = cosmic-toys
 nav-picker = Color Picker
 nav-mouse-find = Find Mouse
 nav-screen-ruler = Screen Ruler
+nav-ocr = OCR (alpha)
 nav-settings = Settings
 nav-about = About
 
@@ -40,11 +41,13 @@ settings-hub-title = Settings
 settings-hub-color-picker = Color Picker
 settings-hub-mouse-find = Find Mouse
 settings-hub-screen-ruler = Screen Ruler
+settings-hub-ocr = OCR
 settings-hub-app = App
 settings-shortcut = Keyboard shortcut
 settings-shortcut-picker = Color Picker shortcut
 settings-shortcut-mouse-find = Find Mouse shortcut
 settings-shortcut-screen-ruler = Screen Ruler shortcut
+settings-shortcut-ocr = OCR shortcut
 
 screen-ruler-title = Screen Ruler
 screen-ruler-body = Measure pixel distances on screen. Click and drag for a line; hold Shift while dragging for a bounding rectangle. Esc to exit.
@@ -64,6 +67,13 @@ screen-ruler-snap-diagonals = Snap to 45° (diagonals)
 screen-ruler-snap-thirds = Snap to 30° / 60° (thirds)
 screen-ruler-snap-octants = Snap to 15° / 75° (octants)
 screen-ruler-reset = Reset to defaults
+
+ocr-title = OCR (Live Text)
+ocr-alpha-chip = ALPHA
+ocr-body = Hit your hotkey, then click and drag through recognized text on screen to copy it. Esc to exit without copying.
+ocr-alpha-headline = This tool is alpha — quality varies a lot.
+ocr-alpha-body = Recognition uses the system `tesseract` binary. English only for now (`tesseract-data-eng`). The screen is captured at the moment OCR triggers and stays frozen during selection — fine for static UI, lossy for animations. Misrecognised words happen; if a copy comes back as garbage, just rerun and try again.
+ocr-test-button = Test OCR
 shortcut-label = Shortcut
 shortcut-unset = Set shortcut...
 shortcut-listening = Press a combo... (Esc to cancel)

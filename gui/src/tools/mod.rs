@@ -9,4 +9,5 @@
 
 pub mod color_picker;
 pub mod mouse_find;
+pub mod ocr;
 pub mod screen_ruler;

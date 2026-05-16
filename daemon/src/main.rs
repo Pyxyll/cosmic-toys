@@ -21,6 +21,7 @@ mod find_mouse;
 mod font;
 mod history;
 mod ipc;
+mod ocr;
 mod overlay;
 mod screen_ruler;
 
@@ -192,6 +193,13 @@ fn run_oneshot(tool: &str, quiet: bool) -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("cosmic-toysd: screen_ruler: {e}");
+                ExitCode::from(1)
+            }
+        },
+        "ocr" => match ocr::show() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("cosmic-toysd: ocr: {e}");
                 ExitCode::from(1)
             }
         },

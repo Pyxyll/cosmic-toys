@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::{find_mouse, history, overlay, screen_ruler};
+use crate::{find_mouse, history, ocr, overlay, screen_ruler};
 
 pub fn socket_path() -> PathBuf {
     let runtime = std::env::var("XDG_RUNTIME_DIR")
@@ -105,6 +105,15 @@ async fn handle(stream: UnixStream) -> io::Result<()> {
                 .map_err(|e| io::Error::other(e.to_string()))?;
             if let Err(e) = result {
                 eprintln!("cosmic-toysd: screen_ruler failed: {e}");
+            }
+            write_half.write_all(b"\n").await?;
+        }
+        "ocr" => {
+            let result = tokio::task::spawn_blocking(ocr::show)
+                .await
+                .map_err(|e| io::Error::other(e.to_string()))?;
+            if let Err(e) = result {
+                eprintln!("cosmic-toysd: ocr failed: {e}");
             }
             write_half.write_all(b"\n").await?;
         }
