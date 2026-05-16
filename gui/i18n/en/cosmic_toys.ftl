@@ -1,6 +1,7 @@
 app-title = cosmic-toys
 nav-picker = Color Picker
 nav-mouse-find = Find Mouse
+nav-screen-ruler = Screen Ruler
 nav-settings = Settings
 nav-about = About
 
@@ -38,10 +39,16 @@ settings-formats = Display formats
 settings-hub-title = Settings
 settings-hub-color-picker = Color Picker
 settings-hub-mouse-find = Find Mouse
+settings-hub-screen-ruler = Screen Ruler
 settings-hub-app = App
 settings-shortcut = Keyboard shortcut
 settings-shortcut-picker = Color Picker shortcut
 settings-shortcut-mouse-find = Find Mouse shortcut
+settings-shortcut-screen-ruler = Screen Ruler shortcut
+
+screen-ruler-title = Screen Ruler
+screen-ruler-body = Measure pixel distances on screen. Click and drag for a line; hold Shift while dragging for a bounding rectangle. Esc to exit.
+screen-ruler-test-button = Test the ruler
 shortcut-label = Shortcut
 shortcut-unset = Set shortcut...
 shortcut-listening = Press a combo... (Esc to cancel)

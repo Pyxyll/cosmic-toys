@@ -22,6 +22,7 @@ mod font;
 mod history;
 mod ipc;
 mod overlay;
+mod screen_ruler;
 
 use std::env;
 use std::io::Write;
@@ -184,6 +185,13 @@ fn run_oneshot(tool: &str, quiet: bool) -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("cosmic-toysd: find_mouse: {e}");
+                ExitCode::from(1)
+            }
+        },
+        "screen_ruler" => match screen_ruler::show() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("cosmic-toysd: screen_ruler: {e}");
                 ExitCode::from(1)
             }
         },

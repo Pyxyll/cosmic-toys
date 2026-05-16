@@ -70,6 +70,8 @@ pub(crate) enum Page {
     Picker,
     /// Find Mouse tool.
     MouseFind,
+    /// Screen Ruler tool.
+    ScreenRuler,
     Settings,
     About,
 }
@@ -81,6 +83,7 @@ pub enum SettingsSubPage {
     Hub,
     ColorPicker,
     MouseFind,
+    ScreenRuler,
     App,
 }
 
@@ -118,6 +121,9 @@ pub enum Message {
     /// "Test the spotlight" button on the Mouse Find page — triggers the
     /// daemon's find_mouse path. Same effect as binding a hotkey to it.
     MouseFindTriggered,
+    /// "Test the ruler" button on the Screen Ruler page — triggers the
+    /// daemon's screen_ruler path.
+    ScreenRulerTriggered,
     /// Adjust one of the Find Mouse spotlight visuals from a slider.
     SetMouseFindField(MouseFindField, u32),
     /// Update the Find Mouse ring color from the hex input. Stored verbatim
@@ -175,6 +181,10 @@ impl cosmic::Application for AppModel {
             .text(fl!("nav-mouse-find"))
             .icon(widget::icon::from_name("input-mouse-symbolic"))
             .data::<Page>(Page::MouseFind);
+        nav.insert()
+            .text(fl!("nav-screen-ruler"))
+            .icon(widget::icon::from_name("preferences-desktop-display-symbolic"))
+            .data::<Page>(Page::ScreenRuler);
         nav.insert()
             .text(fl!("nav-settings"))
             .icon(widget::icon::from_name("preferences-system-symbolic"))
@@ -238,6 +248,7 @@ impl cosmic::Application for AppModel {
         let body = match page {
             Page::Picker => crate::tools::color_picker::page(self),
             Page::MouseFind => crate::tools::mouse_find::page(self),
+            Page::ScreenRuler => crate::tools::screen_ruler::page(self),
             Page::Settings => self.settings_page(),
             Page::About => self.about_page(),
         };
@@ -476,6 +487,14 @@ impl cosmic::Application for AppModel {
                     |_| cosmic::Action::None,
                 );
             }
+            Message::ScreenRulerTriggered => {
+                return Task::perform(
+                    async {
+                        ipc::request_run("screen_ruler").await;
+                    },
+                    |_| cosmic::Action::None,
+                );
+            }
             Message::SetMouseFindField(field, value) => {
                 let app_id = <Self as cosmic::Application>::APP_ID;
                 if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
@@ -598,6 +617,7 @@ impl AppModel {
             SettingsSubPage::Hub => self.settings_hub(),
             SettingsSubPage::ColorPicker => self.settings_sub_color_picker(),
             SettingsSubPage::MouseFind => self.settings_sub_mouse_find(),
+            SettingsSubPage::ScreenRuler => self.settings_sub_screen_ruler(),
             SettingsSubPage::App => self.settings_sub_app(),
         }
     }
@@ -634,10 +654,28 @@ impl AppModel {
                 SettingsSubPage::MouseFind,
             ))
             .add(row(
+                fl!("settings-hub-screen-ruler"),
+                "preferences-desktop-display-symbolic",
+                SettingsSubPage::ScreenRuler,
+            ))
+            .add(row(
                 fl!("settings-hub-app"),
                 "preferences-system-symbolic",
                 SettingsSubPage::App,
             ))
+            .into()
+    }
+
+    /// Screen Ruler sub-page: its hotkey binder. Tool-specific visual
+    /// config (line color, label background, etc.) is a v0.3.x add.
+    fn settings_sub_screen_ruler(&self) -> Element<'_, Message> {
+        let header = self.settings_sub_header(fl!("settings-hub-screen-ruler"));
+        let shortcut =
+            self.shortcut_section_for("screen_ruler", fl!("settings-shortcut-screen-ruler"));
+        widget::Column::new()
+            .spacing(16)
+            .push(header)
+            .push(shortcut)
             .into()
     }
 
@@ -773,7 +811,7 @@ pub(crate) fn ease_out_cubic(t: f32) -> f32 {
 /// returned map.
 fn load_all_shortcuts() -> std::collections::HashMap<String, String> {
     let mut out = std::collections::HashMap::new();
-    for tool in ["color_picker", "find_mouse"] {
+    for tool in ["color_picker", "find_mouse", "screen_ruler"] {
         if let Some(combo) = shortcut::current_binding(tool) {
             out.insert(tool.to_string(), combo);
         }
