@@ -55,6 +55,18 @@ pub struct Config {
     pub screen_ruler_snap_diagonals: bool, // 45°
     pub screen_ruler_snap_thirds: bool,    // 30°, 60°
     pub screen_ruler_snap_octants: bool,   // 15°, 75°
+    /// Panel applet: which tool launchers appear in the applet popup. The
+    /// applet reads these from this shared namespace (the same place it
+    /// already reads `history`), so a single config file drives all three
+    /// components. Color Picker defaults on so the applet looks exactly like
+    /// v0.2.x out of the box; the rest are opt-in. Adding these to the
+    /// existing `#[version = 1]` struct is backward-compatible — cosmic-config
+    /// stores one file per field, so an upgrader missing these files just
+    /// falls back to the defaults below.
+    pub applet_show_color_picker: bool,
+    pub applet_show_find_mouse: bool,
+    pub applet_show_screen_ruler: bool,
+    pub applet_show_ocr: bool,
 }
 
 impl Default for Config {
@@ -82,6 +94,10 @@ impl Default for Config {
             screen_ruler_snap_diagonals: true,
             screen_ruler_snap_thirds: false,
             screen_ruler_snap_octants: false,
+            applet_show_color_picker: true,
+            applet_show_find_mouse: false,
+            applet_show_screen_ruler: false,
+            applet_show_ocr: false,
         }
     }
 }

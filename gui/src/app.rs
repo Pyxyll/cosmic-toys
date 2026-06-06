@@ -154,6 +154,20 @@ pub enum Message {
     SetScreenRulerSnapGroup(SnapGroup, bool),
     /// Reset all Screen Ruler config fields to Config::default().
     ResetScreenRulerDefaults,
+    /// Toggle whether a given tool's launcher shows in the panel applet
+    /// popup. Persisted to the shared config the applet watches.
+    ToggleAppletTool(AppletTool, bool),
+}
+
+/// The four tools the panel applet can surface as launcher buttons. Mirrors
+/// the `applet_show_*` config flags; kept as an enum (rather than a string)
+/// to match the `Format` / `MouseFindField` pattern used elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppletTool {
+    ColorPicker,
+    MouseFind,
+    ScreenRuler,
+    Ocr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -436,6 +450,20 @@ impl cosmic::Application for AppModel {
                         Format::Hsl => new_config.format_hsl = on,
                         Format::Hsv => new_config.format_hsv = on,
                         Format::Oklch => new_config.format_oklch = on,
+                    }
+                    let _ = new_config.write_entry(&ctx);
+                    self.config = new_config;
+                }
+            }
+            Message::ToggleAppletTool(tool, on) => {
+                let app_id = <Self as cosmic::Application>::APP_ID;
+                if let Ok(ctx) = cosmic_config::Config::new(app_id, Config::VERSION) {
+                    let mut new_config = self.config.clone();
+                    match tool {
+                        AppletTool::ColorPicker => new_config.applet_show_color_picker = on,
+                        AppletTool::MouseFind => new_config.applet_show_find_mouse = on,
+                        AppletTool::ScreenRuler => new_config.applet_show_screen_ruler = on,
+                        AppletTool::Ocr => new_config.applet_show_ocr = on,
                     }
                     let _ = new_config.write_entry(&ctx);
                     self.config = new_config;
@@ -864,10 +892,34 @@ impl AppModel {
                 widget::toggler(self.autostart_enabled).on_toggle(Message::ToggleAutostart),
             ))
             .add(widget::text::caption(fl!("settings-autostart-hint")));
+        let applet = widget::settings::section()
+            .title(fl!("settings-applet"))
+            .add(widget::settings::item(
+                fl!("settings-applet-color-picker"),
+                widget::toggler(self.config.applet_show_color_picker)
+                    .on_toggle(|on| Message::ToggleAppletTool(AppletTool::ColorPicker, on)),
+            ))
+            .add(widget::settings::item(
+                fl!("settings-applet-mouse-find"),
+                widget::toggler(self.config.applet_show_find_mouse)
+                    .on_toggle(|on| Message::ToggleAppletTool(AppletTool::MouseFind, on)),
+            ))
+            .add(widget::settings::item(
+                fl!("settings-applet-screen-ruler"),
+                widget::toggler(self.config.applet_show_screen_ruler)
+                    .on_toggle(|on| Message::ToggleAppletTool(AppletTool::ScreenRuler, on)),
+            ))
+            .add(widget::settings::item(
+                fl!("settings-applet-ocr"),
+                widget::toggler(self.config.applet_show_ocr)
+                    .on_toggle(|on| Message::ToggleAppletTool(AppletTool::Ocr, on)),
+            ))
+            .add(widget::text::caption(fl!("settings-applet-hint")));
         widget::Column::new()
             .spacing(16)
             .push(header)
             .push(autostart)
+            .push(applet)
             .into()
     }
 

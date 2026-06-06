@@ -1,9 +1,11 @@
-//! Panel applet: small icon + popup with Pick button, recent chips,
-//! and a link that launches the full GUI.
+//! Panel applet: small icon + popup with a launcher button per enabled
+//! tool, recent color chips, and a link that launches the full GUI.
 //!
 //! State management is minimal: the daemon owns history + picks, and we
 //! subscribe to the same cosmic-config file the GUI watches so the popup
-//! reflects fresh picks without us doing any work.
+//! reflects fresh picks *and* the user's "which tools show here" choices
+//! without us doing any work. The GUI's "Panel Applet" settings section is
+//! the only writer of the `applet_show_*` flags; we just render them.
 
 use crate::color::PickedColor;
 use crate::config::Config;
@@ -23,16 +25,54 @@ const APP_ID: &str = "com.pyxyll.CosmicToysApplet";
 const HISTORY_APP_ID: &str = "com.pyxyll.CosmicToys";
 const HISTORY_LIMIT_DISPLAYED: usize = 8;
 
+/// One launchable tool: its daemon id, a thunk that resolves the button
+/// label (the `fl!` macro needs a literal key, so it's wrapped in a fn
+/// rather than stored as a string), and an accessor that reads its "show in
+/// applet" flag from `Config`. The popup renders a button for each tool
+/// whose flag is on, in this order.
+struct ToolDef {
+    id: &'static str,
+    label: fn() -> String,
+    enabled: fn(&Config) -> bool,
+}
+
+const TOOLS: &[ToolDef] = &[
+    ToolDef {
+        id: "color_picker",
+        label: || fl!("tool-color-picker"),
+        enabled: |c| c.applet_show_color_picker,
+    },
+    ToolDef {
+        id: "find_mouse",
+        label: || fl!("tool-find-mouse"),
+        enabled: |c| c.applet_show_find_mouse,
+    },
+    ToolDef {
+        id: "screen_ruler",
+        label: || fl!("tool-screen-ruler"),
+        enabled: |c| c.applet_show_screen_ruler,
+    },
+    ToolDef {
+        id: "ocr",
+        label: || fl!("tool-ocr"),
+        enabled: |c| c.applet_show_ocr,
+    },
+];
+
 #[derive(Default)]
 pub struct AppModel {
     core: Core,
     popup: Option<Id>,
     history: Vec<PickedColor>,
-    /// True between clicking "Pick" and PopupClosed firing. The subprocess
-    /// is launched in the PopupClosed handler so the panel popup is gone
-    /// before the picker overlay shows up — otherwise they'd overlap on
-    /// the same Wayland top layer for a frame or two.
-    pending_pick: bool,
+    /// Latest snapshot of the shared config — drives both the recent chips
+    /// (`history`, mirrored above as parsed colors) and which tool buttons
+    /// render (`applet_show_*`). Updated from the config-watch subscription.
+    config: Config,
+    /// `Some(tool_id)` between clicking a launcher and PopupClosed firing.
+    /// The subprocess is launched in the PopupClosed handler so the panel
+    /// popup is gone before the tool's overlay shows up — otherwise they'd
+    /// overlap on the same Wayland top layer for a frame or two.
+    pending_tool: Option<String>,
 }
 
 // NOTE: auto-reopening the popup after a pick was attempted but doesn't
@@ -49,13 +89,15 @@ pub struct AppModel {
 pub enum Message {
     Surface(cosmic::surface::Action),
     PopupClosed(Id),
-    UpdateHistory(Config),
-    PickPressed,
-    /// Fired ~150ms after PopupClosed when a pick was pending. The delay
-    /// gives the compositor time to fully tear down the popup surface
-    /// before the picker overlay grabs the top layer, otherwise the panel
-    /// popup is briefly visible behind the overlay.
-    SpawnPicker,
+    UpdateConfig(Config),
+    /// A tool launcher button was pressed; the payload is the daemon tool
+    /// id. Closes the popup, then spawns the tool once it's torn down.
+    LaunchTool(String),
+    /// Fired ~150ms after PopupClosed when a tool launch is pending. The
+    /// delay gives the compositor time to fully tear down the popup surface
+    /// before the tool's overlay grabs the top layer, otherwise the panel
+    /// popup is briefly visible behind the overlay. Payload is the tool id.
+    SpawnTool(String),
     SelectHistory(usize),
     OpenGui,
 }
@@ -75,17 +117,18 @@ impl cosmic::Application for AppModel {
     }
 
     fn init(core: Core, _flags: ()) -> (Self, Task<Message>) {
-        let history = cosmic_config::Config::new(HISTORY_APP_ID, Config::VERSION)
+        let config = cosmic_config::Config::new(HISTORY_APP_ID, Config::VERSION)
             .ok()
             .and_then(|ctx| Config::get_entry(&ctx).ok())
-            .map(|c| parse_history(&c.history))
             .unwrap_or_default();
+        let history = parse_history(&config.history);
 
         let app = AppModel {
             core,
             popup: None,
             history,
-            pending_pick: false,
+            config,
+            pending_tool: None,
         };
         (app, Task::none())
     }
@@ -99,14 +142,14 @@ impl cosmic::Application for AppModel {
         // pick lands the chip strip refreshes without explicit polling.
         self.core()
             .watch_config::<Config>(HISTORY_APP_ID)
-            .map(|update| Message::UpdateHistory(update.config))
+            .map(|update| Message::UpdateConfig(update.config))
     }
 
     fn view(&self) -> Element<'_, Message> {
         let popup_id = self.popup;
         self.core
             .applet
-            .icon_button("color-select-symbolic")
+            .icon_button("applications-utilities-symbolic")
             .on_press_with_rectangle(move |_offset, _bounds| {
                 if let Some(id) = popup_id {
                     Message::Surface(destroy_popup(id))
@@ -137,40 +180,66 @@ impl cosmic::Application for AppModel {
     }
 
     fn view_window(&self, _id: Id) -> Element<'_, Message> {
-        let pick = widget::button::suggested(fl!("pick-button"))
-            .on_press(Message::PickPressed)
-            .width(Length::Fill);
+        let mut content = widget::Column::new().padding(12).spacing(12);
 
-        let recent: Element<'_, Message> = if self.history.is_empty() {
-            widget::text::caption(fl!("empty-hint"))
-                .width(Length::Fill)
-                .into()
+        // One launcher button per enabled tool, in TOOLS order. The first
+        // enabled tool gets the prominent "suggested" styling; the rest are
+        // standard. If the user has disabled everything, show a hint instead.
+        let enabled: Vec<&ToolDef> = TOOLS
+            .iter()
+            .filter(|t| (t.enabled)(&self.config))
+            .collect();
+
+        if enabled.is_empty() {
+            content = content.push(
+                widget::text::caption(fl!("no-tools-hint")).width(Length::Fill),
+            );
         } else {
-            let mut row = widget::Row::new().spacing(6);
-            for (i, c) in self
-                .history
-                .iter()
-                .take(HISTORY_LIMIT_DISPLAYED)
-                .enumerate()
-            {
-                row = row.push(self.chip(i, c.rgb));
+            for (idx, tool) in enabled.iter().enumerate() {
+                let id = tool.id.to_string();
+                let label = (tool.label)();
+                let button = if idx == 0 {
+                    widget::button::suggested(label)
+                } else {
+                    widget::button::standard(label)
+                };
+                content = content.push(
+                    button
+                        .on_press(Message::LaunchTool(id))
+                        .width(Length::Fill),
+                );
             }
-            widget::Column::new()
-                .spacing(6)
-                .push(widget::text::heading(fl!("recent")))
-                .push(row)
-                .into()
-        };
+        }
 
-        let open = widget::button::link(fl!("open-app"))
-            .on_press(Message::OpenGui);
+        // Recent color chips are picker-specific, so only show them when the
+        // Color Picker tool is enabled in the applet.
+        if self.config.applet_show_color_picker {
+            let recent: Element<'_, Message> = if self.history.is_empty() {
+                widget::text::caption(fl!("empty-hint"))
+                    .width(Length::Fill)
+                    .into()
+            } else {
+                let mut row = widget::Row::new().spacing(6);
+                for (i, c) in self
+                    .history
+                    .iter()
+                    .take(HISTORY_LIMIT_DISPLAYED)
+                    .enumerate()
+                {
+                    row = row.push(self.chip(i, c.rgb));
+                }
+                widget::Column::new()
+                    .spacing(6)
+                    .push(widget::text::heading(fl!("recent")))
+                    .push(row)
+                    .into()
+            };
+            content = content.push(recent);
+        }
 
-        let content = widget::Column::new()
-            .padding(12)
-            .spacing(12)
-            .push(pick)
-            .push(recent)
-            .push(open);
+        content = content.push(
+            widget::button::link(fl!("open-app")).on_press(Message::OpenGui),
+        );
 
         self.core.applet.popup_container(content).into()
     }
@@ -186,24 +255,25 @@ impl cosmic::Application for AppModel {
                 if self.popup.as_ref() == Some(&id) {
                     self.popup = None;
                 }
-                if self.pending_pick {
-                    self.pending_pick = false;
+                if let Some(tool) = self.pending_tool.take() {
                     return Task::perform(
                         async { tokio::time::sleep(Duration::from_millis(150)).await },
-                        |_| cosmic::Action::App(Message::SpawnPicker),
+                        move |_| cosmic::Action::App(Message::SpawnTool(tool.clone())),
                     );
                 }
             }
-            Message::SpawnPicker => {
+            Message::SpawnTool(tool) => {
                 let _ = std::process::Command::new("cosmic-toysd")
-                    .arg("--pick")
+                    .arg("run")
+                    .arg(&tool)
                     .spawn();
             }
-            Message::UpdateHistory(c) => {
+            Message::UpdateConfig(c) => {
                 self.history = parse_history(&c.history);
+                self.config = c;
             }
-            Message::PickPressed => {
-                self.pending_pick = true;
+            Message::LaunchTool(tool) => {
+                self.pending_tool = Some(tool);
                 return self.close_popup();
             }
             Message::SelectHistory(i) => {

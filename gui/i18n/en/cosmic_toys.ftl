@@ -83,6 +83,13 @@ settings-startup = Startup
 settings-autostart = Start on login
 settings-autostart-hint = When enabled, the daemon runs hidden in the background so your hotkey works immediately. The GUI window can be opened any time from the launcher.
 
+settings-applet = Panel applet
+settings-applet-color-picker = Color Picker
+settings-applet-mouse-find = Find Mouse
+settings-applet-screen-ruler = Screen Ruler
+settings-applet-ocr = OCR (Live Text)
+settings-applet-hint = Choose which tools appear as buttons in the panel applet popup. Recent colors show only when Color Picker is enabled.
+
 about-tagline = A PowerToys-style toolbox for the COSMIC desktop.
 about-source = Source
 about-issues = Report an issue
