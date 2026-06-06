@@ -11,8 +11,11 @@ The project started as a one-tool fix: `hyprpicker` doesn't run on COSMIC (`cosm
 | Tool | What it does |
 |---|---|
 | **Color Picker** | Magnifier-on-cursor overlay, pixel-precision sampling, clipboard delivery, HEX/RGB/HSL/HSV/OKLCH readouts, recents history. |
+| **Find Mouse** | Lost-cursor spotlight — a brief dimmed overlay with a bright ring around the pointer. Fully configurable radius, ring, dim, and feather. |
+| **Screen Ruler** | Measure pixel distances: drag for a line, Shift-drag for a bounding rectangle, with a magnifier loupe and Shift angle-snapping. |
+| **OCR (Live Text)** | **alpha** — drag over on-screen text to copy it, via the system `tesseract` binary (English only for now). Recognition quality varies. |
 
-More tools land in upcoming releases (Mouse Find in `0.3.0`, Screen Ruler in `0.3.1`).
+More tools may land in future releases.
 
 > The Color Picker tool is a stopgap until `xdg-desktop-portal-cosmic`'s `PickColor` ships natively. Other tools are not.
 
@@ -21,8 +24,8 @@ More tools land in upcoming releases (Mouse Find in `0.3.0`, Screen Ruler in `0.
 | Binary | Job |
 |---|---|
 | `cosmic-toysd` | Headless daemon. Owns the IPC socket, runs each tool's background work on demand, persists state. Auto-starts at login via the systemd user unit. |
-| `cosmic-toys` | GUI. Sidebar nav with one entry per tool, plus Settings (hotkey binder + autostart toggle) and About. |
-| `cosmic-toys-applet` | Panel applet. Quick access to the most-used tool actions. |
+| `cosmic-toys` | GUI. Sidebar nav with one entry per tool, plus Settings (hotkey binder + autostart toggle + applet config) and About. |
+| `cosmic-toys-applet` | Panel applet. A launcher button per tool, configurable from **Settings → App → Panel applet** — pick which tools appear. Shows recent colors when the Color Picker is enabled. |
 
 Tools, hotkeys, and the GUI all funnel through the same daemon, so any state (e.g., picked colors) is visible to every entry point.
 

@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-toysd"
-version = "0.3.0-dev"
+version = "0.3.0"
 edition = "2024"
 description = "Headless background daemon for cosmic-toys"
 

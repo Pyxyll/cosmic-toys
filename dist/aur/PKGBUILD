@@ -1,6 +1,6 @@
 # Maintainer: pyxyll <pyxyllv@gmail.com>
 pkgname=cosmic-toys
-pkgver=0.2.1
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="PowerToys-style toolbox for the COSMIC desktop (daemon + GUI + panel applet)"
 arch=('x86_64')
